@@ -56,3 +56,7 @@ mktemp
 bruhl
 subshell
 configmap
+xlarge
+openshiftapps
+hostedzone
+nslookup
