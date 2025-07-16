@@ -1,12 +1,15 @@
-ROSA_TOKEN=$(ROSA_TOKEN_ENV)
-ROSA_REGION=$(ROSA_REGION_ENV)
-ROSA_VERSION=$(ROSA_VERSION_ENV)
-ROSA_WORKER_MACHINE_TYPE=$(ROSA_WORKER_MACHINE_TYPE_ENV)
-ROSA_WORKER_REPLICAS=$(ROSA_WORKER_REPLICAS_ENV)
-ROSA_DOMAIN=$(ROSA_DOMAIN_ENV)
-ROSA_SUBNET_IDS=$(ROSA_SUBNET_IDS_ENV)
-ROSA_AVAILABILITY_ZONES=$(ROSA_AVAILABILITY_ZONES_ENV)
-CLUSTER_ADMIN_PASSWORD=$(shell openssl rand -base64 12)
+-include .env
+
+# Set default values if not provided in .env
+ROSA_TOKEN?=
+ROSA_REGION?=eu-central-1
+ROSA_VERSION?=4.19.2
+ROSA_WORKER_MACHINE_TYPE?=m5.xlarge
+ROSA_WORKER_REPLICAS?=10
+ROSA_DOMAIN?=
+ROSA_SUBNET_IDS?=
+ROSA_AVAILABILITY_ZONES?=
+CLUSTER_ADMIN_PASSWORD?=$(shell openssl rand -base64 12)
 CLUSTER_NAME?=sapeic-cluster
 
 
@@ -43,19 +46,11 @@ rosa-deploy: rosa-domain-zone-exists rosa-network-deploy rosa-account-roles rosa
 rosa-cluster:  ## Create ROSA cluster
 	$(call required-environment-variables,ROSA_TOKEN CLUSTER_NAME)
 	@if [ -z "${ROSA_SUBNET_IDS}" ]; then \
-		PRIVATE_SUBNETS=$$(aws cloudformation describe-stacks \
-			--stack-name "rosa-network-${CLUSTER_NAME}" \
-			--region ${ROSA_REGION} \
-			--query "Stacks[0].Outputs[?OutputKey=='PrivateSubnets'].OutputValue" \
-			--output text 2>/dev/null || echo ""); \
-		PUBLIC_SUBNETS=$$(aws cloudformation describe-stacks \
-			--stack-name "rosa-network-${CLUSTER_NAME}" \
-			--region ${ROSA_REGION} \
-			--query "Stacks[0].Outputs[?OutputKey=='PublicSubnets'].OutputValue" \
-			--output text 2>/dev/null || echo ""); \
+		PRIVATE_SUBNETS=$$(cd rosa/terraform && terraform output -raw private_subnets 2>/dev/null || echo ""); \
+		PUBLIC_SUBNETS=$$(cd rosa/terraform && terraform output -raw public_subnets 2>/dev/null || echo ""); \
 		if [ -n "$$PRIVATE_SUBNETS" ] && [ -n "$$PUBLIC_SUBNETS" ]; then \
 			ALL_SUBNETS="$$PRIVATE_SUBNETS,$$PUBLIC_SUBNETS"; \
-			echo "Using subnets from CloudFormation stack: $$ALL_SUBNETS"; \
+			echo "Using subnets from Terraform outputs: $$ALL_SUBNETS"; \
 			rosa create cluster --cluster-name "${CLUSTER_NAME}" \
 				--region "${ROSA_REGION}" \
 				--version "${ROSA_VERSION}" \
@@ -69,7 +64,7 @@ rosa-cluster:  ## Create ROSA cluster
 				$(if ${PULL_SECRET},--pull-secret-file "${PULL_SECRET}") \
 				--sts --mode auto; \
 		else \
-			echo "No subnet IDs found from CloudFormation, creating cluster with default networking"; \
+			echo "No subnet IDs found from Terraform, creating cluster with default networking"; \
 			rosa create cluster --cluster-name "${CLUSTER_NAME}" \
 				--region "${ROSA_REGION}" \
 				--version "${ROSA_VERSION}" \
@@ -159,23 +154,25 @@ rosa-console-url:  ## Get ROSA console URL
 	@rosa describe cluster --cluster "${CLUSTER_NAME}" --output json | jq -r '.console.url'
 
 .PHONY: rosa-network-deploy
-rosa-network-deploy:  ## Deploy VPC and subnets for ROSA using CloudFormation
+rosa-network-deploy:  ## Deploy VPC and subnets for ROSA using Terraform
 	$(call required-environment-variables,ROSA_REGION CLUSTER_NAME)
-	@echo "Deploying VPC and subnets for ROSA cluster..."
-	aws cloudformation deploy \
-		--template-file rosa/network.yaml \
-		--stack-name "rosa-network-${CLUSTER_NAME}" \
-		--region ${ROSA_REGION} \
-		--capabilities CAPABILITY_IAM \
-		--parameter-overrides \
-			VPCName=rosa-${CLUSTER_NAME}-vpc \
-			EnvironmentTag=rosa \
-			VPCCidr=10.0.0.0/16 \
-			PublicSubnet1Cidr=10.0.0.0/24 \
-			PublicSubnet2Cidr=10.0.1.0/24 \
-			PrivateSubnet1Cidr=10.0.2.0/24 \
-			PrivateSubnet2Cidr=10.0.3.0/24
-	$(info VPC and subnets deployed for ROSA cluster)
+	@echo "Deploying VPC and subnets for ROSA cluster using Terraform..."
+	@cd rosa/terraform && \
+	cat > network.tfvars <<-EOF && \
+		aws_region = "${ROSA_REGION}" \
+		cluster_name = "${CLUSTER_NAME}" \
+		vpc_name = "rosa-${CLUSTER_NAME}-vpc" \
+		environment_tag = "rosa" \
+		vpc_cidr = "10.0.0.0/16" \
+		public_subnet_1_cidr = "10.0.0.0/24" \
+		public_subnet_2_cidr = "10.0.1.0/24" \
+		private_subnet_1_cidr = "10.0.2.0/24" \
+		private_subnet_2_cidr = "10.0.3.0/24" \
+	EOF \
+	terraform init && \
+	terraform plan -var-file=network.tfvars && \
+	terraform apply -var-file=network.tfvars -auto-approve
+	$(info VPC and subnets deployed for ROSA cluster using Terraform)
 
 .PHONY: rosa-oc-login
 rosa-oc-login:  ## Login with oc to existing ROSA cluster
@@ -186,9 +183,9 @@ rosa-oc-login:  ## Login with oc to existing ROSA cluster
 	oc login "$$API_URL" -u "$$ADMIN_USER" -p "$$ADMIN_PASS"
 
 .PHONY: rosa-domain-records
-rosa-domain-records:  ## Create domain records for ROSA using CloudFormation
+rosa-domain-records:  ## Create domain records for ROSA using Terraform
 	$(call required-environment-variables,CLUSTER_NAME ROSA_DOMAIN)
-	rosa/rosa-domain-records.sh \
+	rosa/terraform-domain-records.sh \
 		--domain ${ROSA_DOMAIN} \
 		--rosa-name ${CLUSTER_NAME}
 
@@ -203,16 +200,22 @@ rosa-delete-oidc-provider:  ## Delete OIDC provider
 	rosa delete oidc-provider --cluster "${CLUSTER_NAME}" --mode auto --yes
 
 .PHONY: rosa-delete-domain-records
-rosa-delete-domain-records:  ## Delete domain records CloudFormation stack
+rosa-delete-domain-records:  ## Delete domain records using Terraform
 	$(call required-environment-variables,CLUSTER_NAME)
-	-aws cloudformation delete-stack --stack-name "rosa-domain-records-${CLUSTER_NAME}" --region ${ROSA_REGION}
-	$(info Domain records stack deletion initiated)
+	@cd rosa/terraform && \
+	if [ -f terraform.tfvars ]; then \
+		terraform destroy -var-file=terraform.tfvars -auto-approve || true; \
+	fi
+	$(info Domain records destruction completed)
 
 .PHONY: rosa-delete-network
-rosa-delete-network:  ## Delete network CloudFormation stack
+rosa-delete-network:  ## Delete network using Terraform
 	$(call required-environment-variables,CLUSTER_NAME)
-	-aws cloudformation delete-stack --stack-name "rosa-network-${CLUSTER_NAME}" --region ${ROSA_REGION}
-	$(info Network stack deletion initiated)
+	@cd rosa/terraform && \
+	if [ -f network.tfvars ]; then \
+		terraform destroy -var-file=network.tfvars -auto-approve || true; \
+	fi
+	$(info Network destruction completed)
 
 .PHONY: rosa-cleanup
 rosa-cleanup: rosa-cluster-delete rosa-delete-operator-roles rosa-delete-oidc-provider rosa-delete-domain-records rosa-delete-network  ## Complete cleanup of ROSA cluster and resources
@@ -238,3 +241,49 @@ rosa-identity-providers:  ## List identity providers for ROSA cluster
 	rosa list identity-providers --cluster "${CLUSTER_NAME}"
 
 # TODO: Add EFS configuration script/target for ROSA cluster.
+
+# Terraform-specific targets
+.PHONY: rosa-terraform-init
+rosa-terraform-init:  ## Initialize Terraform in rosa/terraform directory
+	@echo "Initializing Terraform..."
+	@cd rosa/terraform && terraform init
+
+.PHONY: rosa-terraform-plan
+rosa-terraform-plan:  ## Run terraform plan with network configuration
+	$(call required-environment-variables,ROSA_REGION CLUSTER_NAME)
+	@cd rosa/terraform && \
+	cat > network.tfvars <<-EOF && \
+		aws_region = "${ROSA_REGION}" \
+		cluster_name = "${CLUSTER_NAME}" \
+		vpc_name = "rosa-${CLUSTER_NAME}-vpc" \
+		environment_tag = "rosa" \
+		vpc_cidr = "10.0.0.0/16" \
+		public_subnet_1_cidr = "10.0.0.0/24" \
+		public_subnet_2_cidr = "10.0.1.0/24" \
+		private_subnet_1_cidr = "10.0.2.0/24" \
+		private_subnet_2_cidr = "10.0.3.0/24" \
+	EOF \
+	terraform plan -var-file=network.tfvars
+
+.PHONY: rosa-terraform-output
+rosa-terraform-output:  ## Show terraform outputs
+	@cd rosa/terraform && terraform output
+
+.PHONY: rosa-terraform-state
+rosa-terraform-state:  ## Show terraform state
+	@cd rosa/terraform && terraform state list
+
+.PHONY: rosa-terraform-validate
+rosa-terraform-validate:  ## Validate Terraform configuration
+	@cd rosa/terraform && terraform validate
+
+.PHONY: rosa-terraform-fmt
+rosa-terraform-fmt:  ## Format Terraform files
+	@cd rosa/terraform && terraform fmt
+
+.PHONY: rosa-terraform-clean
+rosa-terraform-clean:  ## Clean Terraform working directory (remove .terraform and tfvars)
+	@echo "Cleaning Terraform working directory..."
+	@cd rosa/terraform && \
+	rm -rf .terraform .terraform.lock.hcl *.tfvars *.tfplan
+	$(info Terraform working directory cleaned)
