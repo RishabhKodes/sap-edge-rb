@@ -29,7 +29,7 @@ output "private_subnet_ids" {
 
 output "all_subnet_ids" {
   description = "List of all subnet IDs"
-  value       = [
+  value = [
     aws_subnet.public_1.id,
     aws_subnet.public_2.id,
     aws_subnet.private_1.id,
@@ -39,7 +39,7 @@ output "all_subnet_ids" {
 
 output "availability_zones" {
   description = "List of availability zones used"
-  value       = [
+  value = [
     aws_subnet.public_1.availability_zone,
     aws_subnet.public_2.availability_zone
   ]

@@ -76,7 +76,7 @@ resource "aws_subnet" "private_2" {
 
 # Elastic IPs for NAT Gateways
 resource "aws_eip" "nat_1" {
-  domain = "vpc"
+  domain     = "vpc"
   depends_on = [aws_internet_gateway.main]
 
   tags = {
@@ -85,7 +85,7 @@ resource "aws_eip" "nat_1" {
 }
 
 resource "aws_eip" "nat_2" {
-  domain = "vpc"
+  domain     = "vpc"
   depends_on = [aws_internet_gateway.main]
 
   tags = {

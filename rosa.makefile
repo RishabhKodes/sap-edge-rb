@@ -158,17 +158,15 @@ rosa-network-deploy:  ## Deploy VPC and subnets for ROSA using Terraform
 	$(call required-environment-variables,ROSA_REGION CLUSTER_NAME)
 	@echo "Deploying VPC and subnets for ROSA cluster using Terraform..."
 	@cd rosa/terraform && \
-	cat > network.tfvars <<-EOF && \
-		aws_region = "${ROSA_REGION}" \
-		cluster_name = "${CLUSTER_NAME}" \
-		vpc_name = "rosa-${CLUSTER_NAME}-vpc" \
-		environment_tag = "rosa" \
-		vpc_cidr = "10.0.0.0/16" \
-		public_subnet_1_cidr = "10.0.0.0/24" \
-		public_subnet_2_cidr = "10.0.1.0/24" \
-		private_subnet_1_cidr = "10.0.2.0/24" \
-		private_subnet_2_cidr = "10.0.3.0/24" \
-	EOF \
+	echo 'aws_region = "${ROSA_REGION}"' > network.tfvars && \
+	echo 'cluster_name = "${CLUSTER_NAME}"' >> network.tfvars && \
+	echo 'vpc_name = "rosa-${CLUSTER_NAME}-vpc"' >> network.tfvars && \
+	echo 'environment_tag = "rosa"' >> network.tfvars && \
+	echo 'vpc_cidr = "10.0.0.0/16"' >> network.tfvars && \
+	echo 'public_subnet_1_cidr = "10.0.0.0/24"' >> network.tfvars && \
+	echo 'public_subnet_2_cidr = "10.0.1.0/24"' >> network.tfvars && \
+	echo 'private_subnet_1_cidr = "10.0.2.0/24"' >> network.tfvars && \
+	echo 'private_subnet_2_cidr = "10.0.3.0/24"' >> network.tfvars && \
 	terraform init && \
 	terraform plan -var-file=network.tfvars && \
 	terraform apply -var-file=network.tfvars -auto-approve
@@ -252,17 +250,15 @@ rosa-terraform-init:  ## Initialize Terraform in rosa/terraform directory
 rosa-terraform-plan:  ## Run terraform plan with network configuration
 	$(call required-environment-variables,ROSA_REGION CLUSTER_NAME)
 	@cd rosa/terraform && \
-	cat > network.tfvars <<-EOF && \
-		aws_region = "${ROSA_REGION}" \
-		cluster_name = "${CLUSTER_NAME}" \
-		vpc_name = "rosa-${CLUSTER_NAME}-vpc" \
-		environment_tag = "rosa" \
-		vpc_cidr = "10.0.0.0/16" \
-		public_subnet_1_cidr = "10.0.0.0/24" \
-		public_subnet_2_cidr = "10.0.1.0/24" \
-		private_subnet_1_cidr = "10.0.2.0/24" \
-		private_subnet_2_cidr = "10.0.3.0/24" \
-	EOF \
+	echo 'aws_region = "${ROSA_REGION}"' > network.tfvars && \
+	echo 'cluster_name = "${CLUSTER_NAME}"' >> network.tfvars && \
+	echo 'vpc_name = "rosa-${CLUSTER_NAME}-vpc"' >> network.tfvars && \
+	echo 'environment_tag = "rosa"' >> network.tfvars && \
+	echo 'vpc_cidr = "10.0.0.0/16"' >> network.tfvars && \
+	echo 'public_subnet_1_cidr = "10.0.0.0/24"' >> network.tfvars && \
+	echo 'public_subnet_2_cidr = "10.0.1.0/24"' >> network.tfvars && \
+	echo 'private_subnet_1_cidr = "10.0.2.0/24"' >> network.tfvars && \
+	echo 'private_subnet_2_cidr = "10.0.3.0/24"' >> network.tfvars && \
 	terraform plan -var-file=network.tfvars
 
 .PHONY: rosa-terraform-output
