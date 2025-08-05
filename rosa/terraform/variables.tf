@@ -55,6 +55,18 @@ variable "private_subnet_2_cidr" {
   default     = "10.0.3.0/24"
 }
 
+variable "public_subnet_3_cidr" {
+  description = "CIDR block for public subnet 3"
+  type        = string
+  default     = "10.0.4.0/24"
+}
+
+variable "private_subnet_3_cidr" {
+  description = "CIDR block for private subnet 3"
+  type        = string
+  default     = "10.0.5.0/24"
+}
+
 # Domain variables
 variable "domain_name" {
   description = "The domain name for Route53 records"

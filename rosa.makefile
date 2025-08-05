@@ -61,6 +61,7 @@ rosa-cluster:  ## Create ROSA cluster
 				$(if ${ROSA_WORKER_MACHINE_TYPE},--compute-machine-type "${ROSA_WORKER_MACHINE_TYPE}") \
 				$(if ${ROSA_WORKER_REPLICAS},--replicas ${ROSA_WORKER_REPLICAS}) \
 				--host-prefix "23" \
+				--multi-az \
 				$(if ${PULL_SECRET},--pull-secret-file "${PULL_SECRET}") \
 				--sts --mode auto; \
 		else \
@@ -74,6 +75,7 @@ rosa-cluster:  ## Create ROSA cluster
 				$(if ${ROSA_WORKER_MACHINE_TYPE},--compute-machine-type "${ROSA_WORKER_MACHINE_TYPE}") \
 				$(if ${ROSA_WORKER_REPLICAS},--replicas ${ROSA_WORKER_REPLICAS}) \
 				--host-prefix "23" \
+				--multi-az \
 				$(if ${PULL_SECRET},--pull-secret-file "${PULL_SECRET}") \
 				--sts --mode auto; \
 		fi; \
@@ -89,6 +91,7 @@ rosa-cluster:  ## Create ROSA cluster
 			$(if ${ROSA_WORKER_MACHINE_TYPE},--compute-machine-type "${ROSA_WORKER_MACHINE_TYPE}") \
 			$(if ${ROSA_WORKER_REPLICAS},--replicas ${ROSA_WORKER_REPLICAS}) \
 			--host-prefix "23" \
+			--multi-az \
 			$(if ${ROSA_AVAILABILITY_ZONES},--availability-zones "${ROSA_AVAILABILITY_ZONES}") \
 			$(if ${PULL_SECRET},--pull-secret-file "${PULL_SECRET}") \
 			--sts --mode auto; \
@@ -165,8 +168,10 @@ rosa-network-deploy:  ## Deploy VPC and subnets for ROSA using Terraform
 	echo 'vpc_cidr = "10.0.0.0/16"' >> network.tfvars && \
 	echo 'public_subnet_1_cidr = "10.0.0.0/24"' >> network.tfvars && \
 	echo 'public_subnet_2_cidr = "10.0.1.0/24"' >> network.tfvars && \
+	echo 'public_subnet_3_cidr = "10.0.4.0/24"' >> network.tfvars && \
 	echo 'private_subnet_1_cidr = "10.0.2.0/24"' >> network.tfvars && \
 	echo 'private_subnet_2_cidr = "10.0.3.0/24"' >> network.tfvars && \
+	echo 'private_subnet_3_cidr = "10.0.5.0/24"' >> network.tfvars && \
 	terraform init && \
 	terraform plan -var-file=network.tfvars && \
 	terraform apply -var-file=network.tfvars -auto-approve
@@ -257,8 +262,10 @@ rosa-terraform-plan:  ## Run terraform plan with network configuration
 	echo 'vpc_cidr = "10.0.0.0/16"' >> network.tfvars && \
 	echo 'public_subnet_1_cidr = "10.0.0.0/24"' >> network.tfvars && \
 	echo 'public_subnet_2_cidr = "10.0.1.0/24"' >> network.tfvars && \
+	echo 'public_subnet_3_cidr = "10.0.4.0/24"' >> network.tfvars && \
 	echo 'private_subnet_1_cidr = "10.0.2.0/24"' >> network.tfvars && \
 	echo 'private_subnet_2_cidr = "10.0.3.0/24"' >> network.tfvars && \
+	echo 'private_subnet_3_cidr = "10.0.5.0/24"' >> network.tfvars && \
 	terraform plan -var-file=network.tfvars
 
 .PHONY: rosa-terraform-output

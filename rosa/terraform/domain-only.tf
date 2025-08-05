@@ -3,17 +3,18 @@
 
 # This file can be used independently when you only need to manage domain records
 # without the network infrastructure
+# Note: When used standalone, add the terraform block with required_providers
 
-terraform {
-  required_version = ">= 1.0"
-
-  required_providers {
-    aws = {
-      source  = "hashicorp/aws"
-      version = "~> 5.0"
-    }
-  }
-}
+# terraform {
+#   required_version = ">= 1.0"
+#
+#   required_providers {
+#     aws = {
+#       source  = "hashicorp/aws"
+#       version = "~> 5.0"
+#     }
+#   }
+# }
 
 # Use this file with domain-specific variables only
 # Example usage:

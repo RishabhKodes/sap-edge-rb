@@ -9,22 +9,22 @@ output "vpc_id" {
 
 output "public_subnets" {
   description = "Comma-separated list of public subnet IDs"
-  value       = "${aws_subnet.public_1.id},${aws_subnet.public_2.id}"
+  value       = "${aws_subnet.public_1.id},${aws_subnet.public_2.id},${aws_subnet.public_3.id}"
 }
 
 output "private_subnets" {
   description = "Comma-separated list of private subnet IDs"
-  value       = "${aws_subnet.private_1.id},${aws_subnet.private_2.id}"
+  value       = "${aws_subnet.private_1.id},${aws_subnet.private_2.id},${aws_subnet.private_3.id}"
 }
 
 output "public_subnet_ids" {
   description = "List of public subnet IDs"
-  value       = [aws_subnet.public_1.id, aws_subnet.public_2.id]
+  value       = [aws_subnet.public_1.id, aws_subnet.public_2.id, aws_subnet.public_3.id]
 }
 
 output "private_subnet_ids" {
   description = "List of private subnet IDs"
-  value       = [aws_subnet.private_1.id, aws_subnet.private_2.id]
+  value       = [aws_subnet.private_1.id, aws_subnet.private_2.id, aws_subnet.private_3.id]
 }
 
 output "all_subnet_ids" {
@@ -32,8 +32,10 @@ output "all_subnet_ids" {
   value = [
     aws_subnet.public_1.id,
     aws_subnet.public_2.id,
+    aws_subnet.public_3.id,
     aws_subnet.private_1.id,
-    aws_subnet.private_2.id
+    aws_subnet.private_2.id,
+    aws_subnet.private_3.id
   ]
 }
 
@@ -41,7 +43,8 @@ output "availability_zones" {
   description = "List of availability zones used"
   value = [
     aws_subnet.public_1.availability_zone,
-    aws_subnet.public_2.availability_zone
+    aws_subnet.public_2.availability_zone,
+    aws_subnet.public_3.availability_zone
   ]
 }
 
