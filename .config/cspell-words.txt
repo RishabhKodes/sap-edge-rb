@@ -60,3 +60,10 @@ xlarge
 openshiftapps
 hostedzone
 nslookup
+tfvars
+hostnames
+serviceaccount
+daemonset
+DAEMONSET
+daemonsets
+DAEMONSETS
