@@ -9,20 +9,7 @@ SPDX-License-Identifier: Apache-2.0
 
 # ROSA Infrastructure Templates and Scripts
 
-This directory contains AWS CloudFormation templates and scripts for deploying Red Hat OpenShift Service on AWS (ROSA) clusters, equivalent to the Azure bicep templates for ARO.
-
-## Files Overview
-
-### CloudFormation Templates
-
-- **`network.yaml`** - Creates VPC, subnets, NAT gateways, and route tables for ROSA clusters
-- **`domain-records.yaml`** - Creates Route53 DNS records (A records by default; CNAME fallback handled automatically by the helper script)
-
-### Scripts
-
-- **`rosa-domain-records.sh`** - Creates domain records by extracting cluster endpoints and setting up DNS
-
-## Usage
+This directory contains Terraform configurations and scripts for deploying Red Hat OpenShift Service on AWS (ROSA) clusters, equivalent to the Azure bicep templates for ARO.
 
 ### Prerequisites
 
@@ -151,15 +138,19 @@ When IP resolution fails, creates CNAME records pointing to original endpoints:
 
 ### Common Issues
 
-1. **Subnet ID errors**: Ensure the network stack deployed successfully before creating the cluster
+1. **Subnet ID errors**: Ensure the network infrastructure deployed successfully before creating the cluster
 2. **Domain resolution failures**: Script automatically falls back to CNAME records
-3. **Permission errors**: Verify AWS IAM permissions for CloudFormation, Route53, and ROSA operations
+3. **Permission errors**: Verify AWS IAM permissions for Terraform, Route53, and ROSA operations
 4. **Region mismatches**: Ensure `ROSA_REGION` matches your AWS CLI default region
 
 ### Viewing Stack Status
 
 ```bash
-# Check network stack status (replace AWS_ACCOUNT_ID with your account ID)
-aws cloudformation describe-stacks \
-  --stack-name "rosa-network-stack-${AWS_ACCOUNT_ID}" \
-  --region ${ROSA_REGION}
+# Check network infrastructure status
+cd rosa/terraform
+terraform show
+
+# Or check specific resources
+terraform state list
+terraform state show <resource_name>
+```
