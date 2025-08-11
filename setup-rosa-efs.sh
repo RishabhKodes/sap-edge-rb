@@ -1,5 +1,9 @@
 #!/bin/bash
 
+# SPDX-FileCopyrightText: 2024 SAP edge team
+#
+# SPDX-License-Identifier: Apache-2.0
+
 # Script to enable AWS EFS CSI Driver Operator on ROSA with region-wide EFS
 # Based on: https://cloud.redhat.com/experts/rosa/aws-efs/
 
@@ -79,7 +83,7 @@ setup_environment() {
     # Get cluster name from environment or prompt
     CLUSTER_NAME="${CLUSTER_NAME:-$(oc get infrastructure cluster -o jsonpath='{.status.infrastructureName}' | sed 's/-[^-]*$//')}"
     if [ -z "${CLUSTER_NAME}" ]; then
-        read -p "Enter your ROSA cluster name: " CLUSTER_NAME
+        read -r -p "Enter your ROSA cluster name: " CLUSTER_NAME
     fi
     export CLUSTER_NAME
 
@@ -90,11 +94,13 @@ setup_environment() {
     fi
 
     # Get OIDC provider
-    export OIDC_PROVIDER=$(oc get authentication.config.openshift.io cluster -o json \
+    OIDC_PROVIDER=$(oc get authentication.config.openshift.io cluster -o json \
         | jq -r .spec.serviceAccountIssuer| sed -e "s/^https:\/\///")
+    export OIDC_PROVIDER
 
     # Get AWS account ID
-    export AWS_ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+    AWS_ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
+    export AWS_ACCOUNT_ID
 
     # Set up scratch directory
     export SCRATCH_DIR=/tmp/scratch
@@ -208,7 +214,7 @@ EOF
     log_info "Attaching policy to role..."
     aws iam attach-role-policy \
        --role-name "${CLUSTER_NAME}-aws-efs-csi-operator" \
-       --policy-arn $POLICY
+       --policy-arn "$POLICY"
     log_success "Policy attached to role"
 }
 
@@ -328,7 +334,7 @@ prepare_vpc() {
     VPC=$(aws ec2 describe-instances \
       --filters "Name=private-dns-name,Values=$NODE" \
       --query 'Reservations[*].Instances[*].{VpcId:VpcId}' \
-      --region $AWS_REGION \
+      --region "$AWS_REGION" \
       | jq -r '.[0][0].VpcId')
 
     export VPC
@@ -338,24 +344,24 @@ prepare_vpc() {
     SG=$(aws ec2 describe-security-groups \
       --filters "Name=group-name,Values=efs-sg" "Name=vpc-id,Values=$VPC" \
       --query 'SecurityGroups[0].GroupId' \
-      --region $AWS_REGION --output text 2>/dev/null || echo "None")
+      --region "$AWS_REGION" --output text 2>/dev/null || echo "None")
 
     if [ "$SG" = "None" ]; then
         log_info "Creating security group for EFS..."
         SG=$(aws ec2 create-security-group \
           --group-name efs-sg \
           --description "Security group for EFS" \
-          --vpc-id $VPC \
-          --region $AWS_REGION \
+          --vpc-id "$VPC" \
+          --region "$AWS_REGION" \
           --query 'GroupId' --output text)
 
         # Add NFS rule
         aws ec2 authorize-security-group-ingress \
-          --group-id $SG \
+          --group-id "$SG" \
           --protocol tcp \
           --port 2049 \
-          --source-group $SG \
-          --region $AWS_REGION
+          --source-group "$SG" \
+          --region "$AWS_REGION"
 
         log_success "Security group created: $SG"
     else
@@ -369,40 +375,40 @@ prepare_vpc() {
 create_efs() {
     log_info "Creating region-wide EFS File System..."
 
-    EFS=$(aws efs create-file-system --creation-token efs-token-$(date +%s) \
-       --region ${AWS_REGION} \
+    EFS=$(aws efs create-file-system --creation-token "efs-token-$(date +%s)" \
+       --region "${AWS_REGION}" \
        --encrypted --query 'FileSystemId' --output text 2>/dev/null || \
        aws efs describe-file-systems \
-       --query 'FileSystems[?CreationToken==`efs-token-1`].FileSystemId' \
+       --query "FileSystems[?CreationToken=='efs-token-1'].FileSystemId" \
        --output text | head -1)
 
     export EFS
     log_success "EFS File System created/found: $EFS"
 
     log_info "Waiting for EFS to be available..."
-    aws efs wait file-system-available --file-system-id $EFS --region $AWS_REGION
+    aws efs wait file-system-available --file-system-id "$EFS" --region "$AWS_REGION"
     log_success "EFS is available"
 
     log_info "Creating mount targets for region-wide EFS..."
 
     for SUBNET in $(aws ec2 describe-subnets \
-      --filters Name=vpc-id,Values=$VPC Name='tag:kubernetes.io/role/internal-elb',Values='*' \
+      --filters Name=vpc-id,Values="$VPC" Name='tag:kubernetes.io/role/internal-elb',Values='*' \
       --query 'Subnets[*].{SubnetId:SubnetId}' \
-      --region $AWS_REGION \
+      --region "$AWS_REGION" \
       | jq -r '.[].SubnetId'); do
 
         # Check if mount target already exists
         EXISTING_MT=$(aws efs describe-mount-targets \
-          --file-system-id $EFS \
-          --region $AWS_REGION \
+          --file-system-id "$EFS" \
+          --region "$AWS_REGION" \
           --query "MountTargets[?SubnetId=='$SUBNET'].MountTargetId" \
           --output text)
 
         if [ -z "$EXISTING_MT" ]; then
             log_info "Creating mount target in subnet: $SUBNET"
-            MOUNT_TARGET=$(aws efs create-mount-target --file-system-id $EFS \
-               --subnet-id $SUBNET --security-groups $SG \
-               --region $AWS_REGION \
+            MOUNT_TARGET=$(aws efs create-mount-target --file-system-id "$EFS" \
+               --subnet-id "$SUBNET" --security-groups "$SG" \
+               --region "$AWS_REGION" \
                --query 'MountTargetId' --output text)
             log_success "Mount target created: $MOUNT_TARGET"
         else
@@ -411,7 +417,7 @@ create_efs() {
     done
 
     log_info "Waiting for all mount targets to be available..."
-    aws efs wait mount-target-available --file-system-id $EFS --region $AWS_REGION
+    aws efs wait mount-target-available --file-system-id "$EFS" --region "$AWS_REGION"
     log_success "All mount targets are available"
 }
 

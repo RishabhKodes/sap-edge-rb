@@ -1,3 +1,7 @@
+# SPDX-FileCopyrightText: 2024 SAP edge team
+#
+# SPDX-License-Identifier: Apache-2.0
+
 # Local .terraform directories
 **/.terraform/*
 

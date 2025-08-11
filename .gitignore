@@ -10,4 +10,3 @@
 node_modules
 kubeconfig
 .env
-setup-rosa-efs.sh
