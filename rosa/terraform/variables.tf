@@ -92,10 +92,184 @@ variable "ipv4_address" {
   default     = ""
 }
 
+# ROSA HCP Variables
+variable "rosa_version" {
+  description = "OpenShift version for ROSA cluster"
+  type        = string
+  default     = "4.14.24"
+}
+
+variable "channel_group" {
+  description = "Channel group for the cluster version (stable, candidate, fast, or nightly)"
+  type        = string
+  default     = "stable"
+}
+
+variable "worker_replicas" {
+  description = "Number of worker node replicas"
+  type        = number
+  default     = 3
+}
+
+variable "worker_machine_type" {
+  description = "AWS instance type for worker nodes"
+  type        = string
+  default     = "m5.xlarge"
+}
+
+variable "create_vpc" {
+  description = "Whether to create a new VPC or use existing subnets"
+  type        = bool
+  default     = true
+}
+
+variable "existing_subnet_ids" {
+  description = "List of existing subnet IDs to use when create_vpc is false"
+  type        = list(string)
+  default     = []
+}
+
+variable "availability_zones" {
+  description = "List of availability zones to use. If empty, will use all available AZs"
+  type        = list(string)
+  default     = []
+}
+
+# STS Configuration
+variable "create_account_roles" {
+  description = "Whether to create account-wide IAM roles"
+  type        = bool
+  default     = true
+}
+
+variable "account_role_prefix" {
+  description = "Prefix for account-wide IAM roles. If empty, uses cluster_name-account"
+  type        = string
+  default     = ""
+}
+
+variable "create_oidc" {
+  description = "Whether to create OIDC provider"
+  type        = bool
+  default     = true
+}
+
+variable "oidc_endpoint_url" {
+  description = "OIDC endpoint URL (if using existing OIDC provider)"
+  type        = string
+  default     = ""
+}
+
+variable "oidc_config_id" {
+  description = "OIDC configuration ID (if using existing OIDC provider)"
+  type        = string
+  default     = ""
+}
+
+variable "create_operator_roles" {
+  description = "Whether to create operator IAM roles"
+  type        = bool
+  default     = true
+}
+
+variable "operator_role_prefix" {
+  description = "Prefix for operator IAM roles. If empty, uses cluster_name-operator"
+  type        = string
+  default     = ""
+}
+
+variable "iam_role_path" {
+  description = "Path for all IAM roles created"
+  type        = string
+  default     = "/"
+}
+
+variable "iam_role_permissions_boundary" {
+  description = "ARN of the policy that is used to set the permissions boundary for IAM roles"
+  type        = string
+  default     = ""
+}
+
+# Cluster Configuration
+variable "private_cluster" {
+  description = "Whether to create a private cluster"
+  type        = bool
+  default     = false
+}
+
+variable "enable_autoscaling" {
+  description = "Enable autoscaling for worker nodes"
+  type        = bool
+  default     = false
+}
+
+variable "min_replicas" {
+  description = "Minimum number of worker replicas when autoscaling is enabled"
+  type        = number
+  default     = 2
+}
+
+variable "max_replicas" {
+  description = "Maximum number of worker replicas when autoscaling is enabled"
+  type        = number
+  default     = 10
+}
+
+variable "kms_key_arn" {
+  description = "ARN of KMS key to use for EBS encryption"
+  type        = string
+  default     = ""
+}
+
+variable "additional_tags" {
+  description = "Additional tags to apply to all resources"
+  type        = map(string)
+  default     = {}
+}
+
+# Admin User Configuration
+variable "create_admin_user" {
+  description = "Whether to create cluster admin user"
+  type        = bool
+  default     = true
+}
+
+variable "admin_username" {
+  description = "Username for cluster admin"
+  type        = string
+  default     = "kubeadmin"
+}
+
+variable "admin_password" {
+  description = "Password for cluster admin (auto-generated if not provided)"
+  type        = string
+  default     = ""
+  sensitive   = true
+}
+
+variable "wait_for_cluster" {
+  description = "Wait for the cluster to be ready before completing"
+  type        = bool
+  default     = true
+}
+
+variable "rosa_token" {
+  description = "ROSA token for authentication"
+  type        = string
+  default     = ""
+  sensitive   = true
+}
+
 variable "dns_ttl" {
   description = "DNS record TTL in seconds"
   type        = number
   default     = 3600
+}
+
+variable "create_domain_records" {
+  description = "Whether to create Route53 domain records (requires existing hosted zone)"
+  type        = bool
+  default     = false
 }
 
 variable "use_cname_records" {

@@ -4,7 +4,7 @@
 #
 # SPDX-License-Identifier: Apache-2.0
 
-# Script to enable AWS EFS CSI Driver Operator on ROSA with region-wide EFS
+# Script to enable AWS EFS CSI Driver Operator on ROSA using Terraform
 # Based on: https://cloud.redhat.com/experts/rosa/aws-efs/
 
 set -euo pipefail
@@ -39,6 +39,10 @@ check_prerequisites() {
 
     local missing_tools=()
 
+    if ! command -v terraform &> /dev/null; then
+        missing_tools+=("terraform")
+    fi
+
     if ! command -v oc &> /dev/null; then
         missing_tools+=("oc")
     fi
@@ -49,10 +53,6 @@ check_prerequisites() {
 
     if ! command -v jq &> /dev/null; then
         missing_tools+=("jq")
-    fi
-
-    if ! command -v watch &> /dev/null; then
-        missing_tools+=("watch")
     fi
 
     if [ ${#missing_tools[@]} -ne 0 ]; then
@@ -80,10 +80,38 @@ check_prerequisites() {
 setup_environment() {
     log_info "Setting up environment variables..."
 
-    # Get cluster name from environment or prompt
-    CLUSTER_NAME="${CLUSTER_NAME:-$(oc get infrastructure cluster -o jsonpath='{.status.infrastructureName}' | sed 's/-[^-]*$//')}"
-    if [ -z "${CLUSTER_NAME}" ]; then
-        read -r -p "Enter your ROSA cluster name: " CLUSTER_NAME
+    # Set Terraform working directory
+    TERRAFORM_DIR="${TERRAFORM_DIR:-./rosa/terraform}"
+    export TERRAFORM_DIR
+
+    # Check if Terraform directory exists
+    if [ ! -d "$TERRAFORM_DIR" ]; then
+        log_error "Terraform directory not found: $TERRAFORM_DIR"
+        log_error "Please ensure you're running this script from the project root directory"
+        exit 1
+    fi
+
+    # Source .env file if it exists
+    ENV_FILE="${ENV_FILE:-$TERRAFORM_DIR/.env}"
+    if [ -f "$ENV_FILE" ]; then
+        log_info "Loading environment variables from: $ENV_FILE"
+        # Export all variables from .env file
+        set -a
+        source "$ENV_FILE"
+        set +a
+    else
+        log_warning ".env file not found at: $ENV_FILE"
+        log_info "You can create one from the example:"
+        log_info "  cp $TERRAFORM_DIR/env.example $ENV_FILE"
+        log_info "  Then edit $ENV_FILE with your values"
+    fi
+
+    # Get cluster name from environment or OpenShift
+    if [ -z "${CLUSTER_NAME:-}" ]; then
+        CLUSTER_NAME=$(oc get infrastructure cluster -o jsonpath='{.status.infrastructureName}' 2>/dev/null | sed 's/-[^-]*$//' || echo "")
+        if [ -z "${CLUSTER_NAME}" ]; then
+            read -r -p "Enter your ROSA cluster name: " CLUSTER_NAME
+        fi
     fi
     export CLUSTER_NAME
 
@@ -93,129 +121,175 @@ setup_environment() {
         export AWS_REGION
     fi
 
-    # Get OIDC provider
-    OIDC_PROVIDER=$(oc get authentication.config.openshift.io cluster -o json \
-        | jq -r .spec.serviceAccountIssuer| sed -e "s/^https:\/\///")
-    export OIDC_PROVIDER
-
-    # Get AWS account ID
-    AWS_ACCOUNT_ID=$(aws sts get-caller-identity --query Account --output text)
-    export AWS_ACCOUNT_ID
-
-    # Set up scratch directory
-    export SCRATCH_DIR=/tmp/scratch
-    export AWS_PAGER=""
-    mkdir -p $SCRATCH_DIR
-
     log_success "Environment variables set:"
     log_info "  CLUSTER_NAME: $CLUSTER_NAME"
     log_info "  AWS_REGION: $AWS_REGION"
-    log_info "  OIDC_PROVIDER: $OIDC_PROVIDER"
-    log_info "  AWS_ACCOUNT_ID: $AWS_ACCOUNT_ID"
+    log_info "  TERRAFORM_DIR: $TERRAFORM_DIR"
+    log_info "  ENV_FILE: $ENV_FILE"
 }
 
-# Create IAM Policy
-create_iam_policy() {
-    log_info "Creating IAM policy for EFS CSI Driver..."
+# Convert environment variables to Terraform variables
+convert_env_to_tf_vars() {
+    local tf_vars=""
 
-    cat << EOF > $SCRATCH_DIR/efs-policy.json
-{
-  "Version": "2012-10-17",
-  "Statement": [
-    {
-      "Effect": "Allow",
-      "Action": [
-        "elasticfilesystem:DescribeAccessPoints",
-        "elasticfilesystem:DescribeFileSystems",
-        "elasticfilesystem:DescribeMountTargets",
-        "elasticfilesystem:TagResource",
-        "ec2:DescribeAvailabilityZones"
-      ],
-      "Resource": "*"
-    },
-    {
-      "Effect": "Allow",
-      "Action": [
-        "elasticfilesystem:CreateAccessPoint"
-      ],
-      "Resource": "*",
-      "Condition": {
-        "StringLike": {
-          "aws:RequestTag/efs.csi.aws.com/cluster": "true"
-        }
-      }
-    },
-    {
-      "Effect": "Allow",
-      "Action": "elasticfilesystem:DeleteAccessPoint",
-      "Resource": "*",
-      "Condition": {
-        "StringEquals": {
-          "aws:ResourceTag/efs.csi.aws.com/cluster": "true"
-        }
-      }
+    # Convert boolean strings to lowercase
+    convert_bool() {
+        local val="$1"
+        if [[ "$val" =~ ^[Tt]rue$ ]]; then
+            echo "true"
+        elif [[ "$val" =~ ^[Ff]alse$ ]]; then
+            echo "false"
+        else
+            echo "$val"
+        fi
     }
-  ]
-}
-EOF
 
-    # Create the policy
-    POLICY=$(aws iam create-policy --policy-name "${CLUSTER_NAME}-rosa-efs-csi" \
-       --policy-document file://$SCRATCH_DIR/efs-policy.json \
-       --query 'Policy.Arn' --output text 2>/dev/null) || \
-       POLICY=$(aws iam list-policies \
-       --query "Policies[?PolicyName==\`${CLUSTER_NAME}-rosa-efs-csi\`].Arn" \
-       --output text)
-
-    export POLICY
-    log_success "IAM policy created/found: $POLICY"
-}
-
-# Create Trust Policy and IAM Role
-create_iam_role() {
-    log_info "Creating IAM role for EFS CSI Driver..."
-
-    cat <<EOF > $SCRATCH_DIR/TrustPolicy.json
-{
-  "Version": "2012-10-17",
-  "Statement": [
-    {
-      "Effect": "Allow",
-      "Principal": {
-        "Federated": "arn:aws:iam::${AWS_ACCOUNT_ID}:oidc-provider/${OIDC_PROVIDER}"
-      },
-      "Action": "sts:AssumeRoleWithWebIdentity",
-      "Condition": {
-        "StringEquals": {
-          "${OIDC_PROVIDER}:sub": [
-            "system:serviceaccount:openshift-cluster-csi-drivers:aws-efs-csi-driver-operator",
-            "system:serviceaccount:openshift-cluster-csi-drivers:aws-efs-csi-driver-controller-sa"
-          ]
-        }
-      }
+    # Convert comma-separated lists to HCL arrays
+    convert_list() {
+        local val="$1"
+        if [ -z "$val" ]; then
+            echo "[]"
+        else
+            echo "[\"$(echo "$val" | sed 's/,/", "/g')\"]"
+        fi
     }
-  ]
+
+    # Convert key=value pairs to HCL maps
+    convert_map() {
+        local val="$1"
+        if [ -z "$val" ]; then
+            echo "{}"
+        else
+            local map="{"
+            IFS=',' read -ra PAIRS <<< "$val"
+            for i in "${!PAIRS[@]}"; do
+                IFS='=' read -r key value <<< "${PAIRS[$i]}"
+                [ $i -gt 0 ] && map+=", "
+                map+="\"$key\" = \"$value\""
+            done
+            map+="}"
+            echo "$map"
+        fi
+    }
+
+    # Map environment variables to Terraform variables
+    [ -n "${ROSA_TOKEN:-}" ] && tf_vars+=" -var='rosa_token=$ROSA_TOKEN'"
+    [ -n "${CLUSTER_NAME:-}" ] && tf_vars+=" -var='cluster_name=$CLUSTER_NAME'"
+    [ -n "${AWS_REGION:-}" ] && tf_vars+=" -var='aws_region=$AWS_REGION'"
+    [ -n "${ROSA_VERSION:-}" ] && tf_vars+=" -var='rosa_version=$ROSA_VERSION'"
+    [ -n "${CHANNEL_GROUP:-}" ] && tf_vars+=" -var='channel_group=$CHANNEL_GROUP'"
+    [ -n "${WORKER_REPLICAS:-}" ] && tf_vars+=" -var='worker_replicas=$WORKER_REPLICAS'"
+    [ -n "${WORKER_MACHINE_TYPE:-}" ] && tf_vars+=" -var='worker_machine_type=$WORKER_MACHINE_TYPE'"
+
+    # Network configuration
+    [ -n "${CREATE_VPC:-}" ] && tf_vars+=" -var='create_vpc=$(convert_bool "$CREATE_VPC")'"
+    [ -n "${EXISTING_SUBNET_IDS:-}" ] && tf_vars+=" -var='existing_subnet_ids=$(convert_list "$EXISTING_SUBNET_IDS")'"
+    [ -n "${AVAILABILITY_ZONES:-}" ] && tf_vars+=" -var='availability_zones=$(convert_list "$AVAILABILITY_ZONES")'"
+
+    # VPC configuration
+    [ -n "${VPC_NAME:-}" ] && tf_vars+=" -var='vpc_name=$VPC_NAME'"
+    [ -n "${VPC_CIDR:-}" ] && tf_vars+=" -var='vpc_cidr=$VPC_CIDR'"
+    [ -n "${PUBLIC_SUBNET_1_CIDR:-}" ] && tf_vars+=" -var='public_subnet_1_cidr=$PUBLIC_SUBNET_1_CIDR'"
+    [ -n "${PUBLIC_SUBNET_2_CIDR:-}" ] && tf_vars+=" -var='public_subnet_2_cidr=$PUBLIC_SUBNET_2_CIDR'"
+    [ -n "${PUBLIC_SUBNET_3_CIDR:-}" ] && tf_vars+=" -var='public_subnet_3_cidr=$PUBLIC_SUBNET_3_CIDR'"
+    [ -n "${PRIVATE_SUBNET_1_CIDR:-}" ] && tf_vars+=" -var='private_subnet_1_cidr=$PRIVATE_SUBNET_1_CIDR'"
+    [ -n "${PRIVATE_SUBNET_2_CIDR:-}" ] && tf_vars+=" -var='private_subnet_2_cidr=$PRIVATE_SUBNET_2_CIDR'"
+    [ -n "${PRIVATE_SUBNET_3_CIDR:-}" ] && tf_vars+=" -var='private_subnet_3_cidr=$PRIVATE_SUBNET_3_CIDR'"
+
+    # Domain configuration
+    [ -n "${DOMAIN_NAME:-}" ] && tf_vars+=" -var='domain_name=$DOMAIN_NAME'"
+    [ -n "${CREATE_DOMAIN_RECORDS:-}" ] && tf_vars+=" -var='create_domain_records=$(convert_bool "$CREATE_DOMAIN_RECORDS")'"
+    [ -n "${USE_CNAME_RECORDS:-}" ] && tf_vars+=" -var='use_cname_records=$(convert_bool "$USE_CNAME_RECORDS")'"
+
+    # Cluster access
+    [ -n "${PRIVATE_CLUSTER:-}" ] && tf_vars+=" -var='private_cluster=$(convert_bool "$PRIVATE_CLUSTER")'"
+    [ -n "${CREATE_ADMIN_USER:-}" ] && tf_vars+=" -var='create_admin_user=$(convert_bool "$CREATE_ADMIN_USER")'"
+    [ -n "${ADMIN_USERNAME:-}" ] && tf_vars+=" -var='admin_username=$ADMIN_USERNAME'"
+    [ -n "${ADMIN_PASSWORD:-}" ] && tf_vars+=" -var='admin_password=$ADMIN_PASSWORD'"
+
+    # Other configurations
+    [ -n "${ENABLE_AUTOSCALING:-}" ] && tf_vars+=" -var='enable_autoscaling=$(convert_bool "$ENABLE_AUTOSCALING")'"
+    [ -n "${MIN_REPLICAS:-}" ] && tf_vars+=" -var='min_replicas=$MIN_REPLICAS'"
+    [ -n "${MAX_REPLICAS:-}" ] && tf_vars+=" -var='max_replicas=$MAX_REPLICAS'"
+    [ -n "${KMS_KEY_ARN:-}" ] && tf_vars+=" -var='kms_key_arn=$KMS_KEY_ARN'"
+    [ -n "${CREATE_ACCOUNT_ROLES:-}" ] && tf_vars+=" -var='create_account_roles=$(convert_bool "$CREATE_ACCOUNT_ROLES")'"
+    [ -n "${CREATE_OIDC:-}" ] && tf_vars+=" -var='create_oidc=$(convert_bool "$CREATE_OIDC")'"
+    [ -n "${CREATE_OPERATOR_ROLES:-}" ] && tf_vars+=" -var='create_operator_roles=$(convert_bool "$CREATE_OPERATOR_ROLES")'"
+    [ -n "${ACCOUNT_ROLE_PREFIX:-}" ] && tf_vars+=" -var='account_role_prefix=$ACCOUNT_ROLE_PREFIX'"
+    [ -n "${OPERATOR_ROLE_PREFIX:-}" ] && tf_vars+=" -var='operator_role_prefix=$OPERATOR_ROLE_PREFIX'"
+    [ -n "${IAM_ROLE_PATH:-}" ] && tf_vars+=" -var='iam_role_path=$IAM_ROLE_PATH'"
+    [ -n "${IAM_ROLE_PERMISSIONS_BOUNDARY:-}" ] && tf_vars+=" -var='iam_role_permissions_boundary=$IAM_ROLE_PERMISSIONS_BOUNDARY'"
+    [ -n "${WAIT_FOR_CLUSTER:-}" ] && tf_vars+=" -var='wait_for_cluster=$(convert_bool "$WAIT_FOR_CLUSTER")'"
+    [ -n "${ENVIRONMENT_TAG:-}" ] && tf_vars+=" -var='environment_tag=$ENVIRONMENT_TAG'"
+    [ -n "${DNS_TTL:-}" ] && tf_vars+=" -var='dns_ttl=$DNS_TTL'"
+
+    # EFS configuration
+    [ -n "${ENABLE_EFS:-}" ] && tf_vars+=" -var='enable_efs=$(convert_bool "$ENABLE_EFS")'"
+    [ -n "${EFS_PERFORMANCE_MODE:-}" ] && tf_vars+=" -var='efs_performance_mode=$EFS_PERFORMANCE_MODE'"
+    [ -n "${EFS_THROUGHPUT_MODE:-}" ] && tf_vars+=" -var='efs_throughput_mode=$EFS_THROUGHPUT_MODE'"
+    [ -n "${EFS_PROVISIONED_THROUGHPUT:-}" ] && tf_vars+=" -var='efs_provisioned_throughput=$EFS_PROVISIONED_THROUGHPUT'"
+    [ -n "${EFS_KMS_KEY_ARN:-}" ] && tf_vars+=" -var='efs_kms_key_arn=$EFS_KMS_KEY_ARN'"
+    [ -n "${EFS_TRANSITION_TO_IA:-}" ] && tf_vars+=" -var='efs_transition_to_ia=$EFS_TRANSITION_TO_IA'"
+    [ -n "${EFS_TRANSITION_TO_PRIMARY_STORAGE_CLASS:-}" ] && tf_vars+=" -var='efs_transition_to_primary_storage_class=$EFS_TRANSITION_TO_PRIMARY_STORAGE_CLASS'"
+
+    # Additional tags require special handling
+    if [ -n "${ADDITIONAL_TAGS:-}" ]; then
+        tf_vars+=" -var='additional_tags=$(convert_map "$ADDITIONAL_TAGS")'"
+    fi
+
+    echo "$tf_vars"
 }
-EOF
 
-    # Create the role
-    ROLE=$(aws iam create-role \
-      --role-name "${CLUSTER_NAME}-aws-efs-csi-operator" \
-      --assume-role-policy-document file://$SCRATCH_DIR/TrustPolicy.json \
-      --query "Role.Arn" --output text 2>/dev/null) || \
-      ROLE=$(aws iam get-role \
-      --role-name "${CLUSTER_NAME}-aws-efs-csi-operator" \
-      --query "Role.Arn" --output text)
+# Apply Terraform EFS configuration
+apply_terraform_efs() {
+    log_info "Applying Terraform configuration for EFS..."
 
-    export ROLE
-    log_success "IAM role created/found: $ROLE"
+    cd "$TERRAFORM_DIR"
 
-    # Attach policy to role
-    log_info "Attaching policy to role..."
-    aws iam attach-role-policy \
-       --role-name "${CLUSTER_NAME}-aws-efs-csi-operator" \
-       --policy-arn "$POLICY"
-    log_success "Policy attached to role"
+    # Initialize Terraform if needed
+    if [ ! -d ".terraform" ]; then
+        log_info "Initializing Terraform..."
+        terraform init
+    fi
+
+    # Convert environment variables to Terraform variables
+    TF_VARS=$(convert_env_to_tf_vars)
+
+    # Force enable EFS
+    TF_VARS+=" -var='enable_efs=true'"
+
+    # Plan with environment variables
+    log_info "Planning Terraform changes with EFS enabled..."
+    eval "terraform plan $TF_VARS -out=tfplan"
+
+    # Ask for confirmation
+    read -r -p "Do you want to apply these changes? (yes/no): " confirm
+    if [[ ! "$confirm" =~ ^[Yy]es$ ]]; then
+        log_warning "Terraform apply cancelled."
+        exit 0
+    fi
+
+    # Apply the configuration
+    log_info "Applying Terraform configuration..."
+    terraform apply tfplan
+
+    # Get outputs
+    EFS_ID=$(terraform output -raw efs_file_system_id 2>/dev/null || echo "")
+    EFS_ROLE_ARN=$(terraform output -raw efs_csi_driver_role_arn 2>/dev/null || echo "")
+
+    if [ -z "$EFS_ID" ] || [ -z "$EFS_ROLE_ARN" ]; then
+        log_error "Failed to get EFS outputs from Terraform. Please check the apply was successful."
+        exit 1
+    fi
+
+    export EFS_ID
+    export EFS_ROLE_ARN
+
+    log_success "Terraform EFS configuration applied successfully"
+    log_info "  EFS File System ID: $EFS_ID"
+    log_info "  EFS CSI Driver Role ARN: $EFS_ROLE_ARN"
+
+    cd - > /dev/null
 }
 
 # Deploy AWS EFS Operator
@@ -231,7 +305,7 @@ metadata:
 stringData:
   credentials: |-
     [default]
-    role_arn = $ROLE
+    role_arn = $EFS_ROLE_ARN
     web_identity_token_file = /var/run/secrets/openshift/serviceaccount/token
 EOF
 
@@ -323,104 +397,6 @@ EOF
     log_success "EFS CSI Driver is running"
 }
 
-# Prepare VPC for EFS
-prepare_vpc() {
-    log_info "Preparing VPC for EFS access..."
-
-    # Get VPC ID from worker node
-    NODE=$(oc get nodes --selector=node-role.kubernetes.io/worker \
-      -o jsonpath='{.items[0].metadata.name}')
-
-    VPC=$(aws ec2 describe-instances \
-      --filters "Name=private-dns-name,Values=$NODE" \
-      --query 'Reservations[*].Instances[*].{VpcId:VpcId}' \
-      --region "$AWS_REGION" \
-      | jq -r '.[0][0].VpcId')
-
-    export VPC
-    log_success "Found VPC: $VPC"
-
-    # Create or get security group for EFS
-    SG=$(aws ec2 describe-security-groups \
-      --filters "Name=group-name,Values=efs-sg" "Name=vpc-id,Values=$VPC" \
-      --query 'SecurityGroups[0].GroupId' \
-      --region "$AWS_REGION" --output text 2>/dev/null || echo "None")
-
-    if [ "$SG" = "None" ]; then
-        log_info "Creating security group for EFS..."
-        SG=$(aws ec2 create-security-group \
-          --group-name efs-sg \
-          --description "Security group for EFS" \
-          --vpc-id "$VPC" \
-          --region "$AWS_REGION" \
-          --query 'GroupId' --output text)
-
-        # Add NFS rule
-        aws ec2 authorize-security-group-ingress \
-          --group-id "$SG" \
-          --protocol tcp \
-          --port 2049 \
-          --source-group "$SG" \
-          --region "$AWS_REGION"
-
-        log_success "Security group created: $SG"
-    else
-        log_success "Found existing security group: $SG"
-    fi
-
-    export SG
-}
-
-# Create region-wide EFS
-create_efs() {
-    log_info "Creating region-wide EFS File System..."
-
-    EFS=$(aws efs create-file-system --creation-token "efs-token-$(date +%s)" \
-       --region "${AWS_REGION}" \
-       --encrypted --query 'FileSystemId' --output text 2>/dev/null || \
-       aws efs describe-file-systems \
-       --query "FileSystems[?CreationToken=='efs-token-1'].FileSystemId" \
-       --output text | head -1)
-
-    export EFS
-    log_success "EFS File System created/found: $EFS"
-
-    log_info "Waiting for EFS to be available..."
-    aws efs wait file-system-available --file-system-id "$EFS" --region "$AWS_REGION"
-    log_success "EFS is available"
-
-    log_info "Creating mount targets for region-wide EFS..."
-
-    for SUBNET in $(aws ec2 describe-subnets \
-      --filters Name=vpc-id,Values="$VPC" Name='tag:kubernetes.io/role/internal-elb',Values='*' \
-      --query 'Subnets[*].{SubnetId:SubnetId}' \
-      --region "$AWS_REGION" \
-      | jq -r '.[].SubnetId'); do
-
-        # Check if mount target already exists
-        EXISTING_MT=$(aws efs describe-mount-targets \
-          --file-system-id "$EFS" \
-          --region "$AWS_REGION" \
-          --query "MountTargets[?SubnetId=='$SUBNET'].MountTargetId" \
-          --output text)
-
-        if [ -z "$EXISTING_MT" ]; then
-            log_info "Creating mount target in subnet: $SUBNET"
-            MOUNT_TARGET=$(aws efs create-mount-target --file-system-id "$EFS" \
-               --subnet-id "$SUBNET" --security-groups "$SG" \
-               --region "$AWS_REGION" \
-               --query 'MountTargetId' --output text)
-            log_success "Mount target created: $MOUNT_TARGET"
-        else
-            log_info "Mount target already exists in subnet $SUBNET: $EXISTING_MT"
-        fi
-    done
-
-    log_info "Waiting for all mount targets to be available..."
-    aws efs wait mount-target-available --file-system-id "$EFS" --region "$AWS_REGION"
-    log_success "All mount targets are available"
-}
-
 # Create Storage Class
 create_storage_class() {
     log_info "Creating Storage Class for EFS volume..."
@@ -433,7 +409,7 @@ metadata:
 provisioner: efs.csi.aws.com
 parameters:
   provisioningMode: efs-ap
-  fileSystemId: $EFS
+  fileSystemId: $EFS_ID
   directoryPerms: "700"
   gidRangeStart: "1000"
   gidRangeEnd: "2000"
@@ -539,11 +515,8 @@ print_summary() {
     log_success "AWS EFS CSI Driver setup completed successfully!"
     log_info "================================================"
     log_info "Summary of created resources:"
-    log_info "  IAM Policy: $POLICY"
-    log_info "  IAM Role: $ROLE"
-    log_info "  EFS File System: $EFS"
-    log_info "  Security Group: $SG"
-    log_info "  VPC: $VPC"
+    log_info "  EFS File System ID: $EFS_ID"
+    log_info "  EFS CSI Driver Role ARN: $EFS_ROLE_ARN"
     log_info "  Storage Class: efs-sc"
     log_info "  Test Namespace: efs-demo"
     log_info ""
@@ -552,27 +525,97 @@ print_summary() {
     log_info ""
     log_info "To use EFS in your applications:"
     log_info "  Use storage class 'efs-sc' in your PVC definitions"
+    log_info ""
+    log_info "To manage EFS configuration via Terraform:"
+    log_info "  cd $TERRAFORM_DIR"
+    log_info "  terraform plan"
+    log_info "  terraform apply"
     log_info "================================================"
 }
 
 # Main execution
 main() {
-    log_info "Starting AWS EFS CSI Driver setup for ROSA..."
+    log_info "Starting AWS EFS CSI Driver setup for ROSA using Terraform..."
 
     check_prerequisites
     setup_environment
-    create_iam_policy
-    create_iam_role
+
+    # Apply Terraform configuration
+    apply_terraform_efs
+
+    # Deploy operator and driver
     deploy_efs_operator
     install_csi_driver
-    prepare_vpc
-    create_efs
     create_storage_class
-    create_test_resources
+
+    # Optional: Create test resources
+    read -r -p "Do you want to create test resources to verify EFS? (yes/no): " create_test
+    if [[ "$create_test" =~ ^[Yy]es$ ]]; then
+        create_test_resources
+    fi
+
     print_summary
 
     log_success "Setup completed successfully!"
 }
+
+# Show usage
+usage() {
+    echo "Usage: $0 [OPTIONS]"
+    echo ""
+    echo "Options:"
+    echo "  -h, --help              Show this help message"
+    echo "  -c, --cluster-name      Set the cluster name (default: auto-detect)"
+    echo "  -r, --region            Set AWS region (default: eu-central-1)"
+    echo "  -d, --terraform-dir     Set Terraform directory (default: ./rosa/terraform)"
+    echo "  -e, --env-file          Set environment file path (default: ./rosa/terraform/.env)"
+    echo ""
+    echo "Environment Variables:"
+    echo "  CLUSTER_NAME            ROSA cluster name"
+    echo "  AWS_REGION              AWS region"
+    echo "  TERRAFORM_DIR           Path to Terraform configuration directory"
+    echo "  ENV_FILE                Path to .env file"
+    echo ""
+    echo "Configuration:"
+    echo "  This script reads configuration from a .env file."
+    echo "  Copy rosa/terraform/env.example to rosa/terraform/.env and update with your values."
+    echo ""
+    echo "Example:"
+    echo "  $0 --cluster-name my-rosa-cluster --region us-east-1"
+    echo "  CLUSTER_NAME=my-cluster AWS_REGION=us-west-2 $0"
+    echo "  $0 --env-file /path/to/custom.env"
+}
+
+# Parse command line arguments
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        -h|--help)
+            usage
+            exit 0
+            ;;
+        -c|--cluster-name)
+            CLUSTER_NAME="$2"
+            shift 2
+            ;;
+        -r|--region)
+            AWS_REGION="$2"
+            shift 2
+            ;;
+        -d|--terraform-dir)
+            TERRAFORM_DIR="$2"
+            shift 2
+            ;;
+        -e|--env-file)
+            ENV_FILE="$2"
+            shift 2
+            ;;
+        *)
+            log_error "Unknown option: $1"
+            usage
+            exit 1
+            ;;
+    esac
+done
 
 # Run main function
 main "$@"

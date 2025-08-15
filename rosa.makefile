@@ -5,157 +5,98 @@ ROSA_TOKEN?=
 ROSA_REGION?=eu-central-1
 ROSA_VERSION?=4.19.2
 ROSA_WORKER_MACHINE_TYPE?=m5.xlarge
-ROSA_WORKER_REPLICAS?=10
+ROSA_WORKER_REPLICAS?=9
 ROSA_DOMAIN?=
 ROSA_SUBNET_IDS?=
 ROSA_AVAILABILITY_ZONES?=
 CLUSTER_ADMIN_PASSWORD?=$(shell openssl rand -base64 12)
 CLUSTER_NAME?=sapeic-cluster
 
-
-.PHONY: rosa-login
-rosa-login:  ## Login using ROSA token
-	$(call required-environment-variables,ROSA_TOKEN)
-	@rosa login --token="${ROSA_TOKEN}"
-	@rosa create account-roles --mode auto
-
-.PHONY: rosa-init
-rosa-init:  ## ROSA init
-	rosa init
-
-.PHONY: rosa-operator-roles
-rosa-operator-roles:  ## Create ROSA operator roles for cluster
-	$(call required-environment-variables,CLUSTER_NAME)
-	rosa create operator-roles --cluster "${CLUSTER_NAME}" --mode auto
-
-.PHONY: rosa-oidc-provider
-rosa-oidc-provider:  ## Create OIDC provider for cluster
-	$(call required-environment-variables,CLUSTER_NAME)
-	rosa create oidc-provider --cluster "${CLUSTER_NAME}" --mode auto
-
+# Domain validation targets
 .PHONY: rosa-domain-zone-exists
 rosa-domain-zone-exists:  ## Fail if Route53 hosted zone does not exist
 	$(call required-environment-variables,ROSA_DOMAIN)
-	ROSA_DOMAIN=${ROSA_DOMAIN} rosa/rosa-domain-zone-exists.sh
+	ROSA_DOMAIN=${ROSA_DOMAIN} hack/rosa-domain-zone-exists.sh
 
-.PHONY: rosa-deploy
-rosa-deploy: rosa-domain-zone-exists rosa-network-deploy rosa-account-roles rosa-cluster rosa-operator-roles rosa-oidc-provider  ## Deploy ROSA cluster with all dependencies
-	$(info ROSA cluster deployment complete)
+# ROSA HCP Terraform deployment targets
+.PHONY: rosa-hcp-deploy
+rosa-hcp-deploy: rosa-hcp-terraform-deploy  ## Deploy ROSA HCP cluster using Terraform
+	$(info ROSA HCP cluster deployment complete)
 
-.PHONY: rosa-cluster
-rosa-cluster:  ## Create ROSA cluster
+.PHONY: rosa-hcp-deploy-with-domain
+rosa-hcp-deploy-with-domain: rosa-domain-zone-exists rosa-hcp-terraform-deploy  ## Deploy ROSA HCP cluster with custom domain
+	$(info ROSA HCP cluster deployment complete)
+
+.PHONY: rosa-hcp-terraform-deploy
+rosa-hcp-terraform-deploy:  ## Deploy ROSA HCP cluster and all resources using Terraform
 	$(call required-environment-variables,ROSA_TOKEN CLUSTER_NAME)
-	@if [ -z "${ROSA_SUBNET_IDS}" ]; then \
-		PRIVATE_SUBNETS=$$(cd rosa/terraform && terraform output -raw private_subnets 2>/dev/null || echo ""); \
-		PUBLIC_SUBNETS=$$(cd rosa/terraform && terraform output -raw public_subnets 2>/dev/null || echo ""); \
-		if [ -n "$$PRIVATE_SUBNETS" ] && [ -n "$$PUBLIC_SUBNETS" ]; then \
-			ALL_SUBNETS="$$PRIVATE_SUBNETS,$$PUBLIC_SUBNETS"; \
-			echo "Using subnets from Terraform outputs: $$ALL_SUBNETS"; \
-			rosa create cluster --cluster-name "${CLUSTER_NAME}" \
-				--region "${ROSA_REGION}" \
-				--version "${ROSA_VERSION}" \
-				--subnet-ids "$$ALL_SUBNETS" \
-				--machine-cidr "10.0.0.0/16" \
-				--service-cidr "172.30.0.0/16" \
-				--pod-cidr "10.128.0.0/14" \
-				$(if ${ROSA_WORKER_MACHINE_TYPE},--compute-machine-type "${ROSA_WORKER_MACHINE_TYPE}") \
-				$(if ${ROSA_WORKER_REPLICAS},--replicas ${ROSA_WORKER_REPLICAS}) \
-				--host-prefix "23" \
-				--multi-az \
-				$(if ${PULL_SECRET},--pull-secret-file "${PULL_SECRET}") \
-				--sts --mode auto; \
-		else \
-			echo "No subnet IDs found from Terraform, creating cluster with default networking"; \
-			rosa create cluster --cluster-name "${CLUSTER_NAME}" \
-				--region "${ROSA_REGION}" \
-				--version "${ROSA_VERSION}" \
-				--machine-cidr "10.0.0.0/16" \
-				--service-cidr "172.30.0.0/16" \
-				--pod-cidr "10.128.0.0/14" \
-				$(if ${ROSA_WORKER_MACHINE_TYPE},--compute-machine-type "${ROSA_WORKER_MACHINE_TYPE}") \
-				$(if ${ROSA_WORKER_REPLICAS},--replicas ${ROSA_WORKER_REPLICAS}) \
-				--host-prefix "23" \
-				--multi-az \
-				$(if ${PULL_SECRET},--pull-secret-file "${PULL_SECRET}") \
-				--sts --mode auto; \
-		fi; \
-	else \
-		echo "Using provided subnet IDs: ${ROSA_SUBNET_IDS}"; \
-		rosa create cluster --cluster-name "${CLUSTER_NAME}" \
-			--region "${ROSA_REGION}" \
-			--version "${ROSA_VERSION}" \
-			--subnet-ids "${ROSA_SUBNET_IDS}" \
-			--machine-cidr "10.0.0.0/16" \
-			--service-cidr "172.30.0.0/16" \
-			--pod-cidr "10.128.0.0/14" \
-			$(if ${ROSA_WORKER_MACHINE_TYPE},--compute-machine-type "${ROSA_WORKER_MACHINE_TYPE}") \
-			$(if ${ROSA_WORKER_REPLICAS},--replicas ${ROSA_WORKER_REPLICAS}) \
-			--host-prefix "23" \
-			--multi-az \
-			$(if ${ROSA_AVAILABILITY_ZONES},--availability-zones "${ROSA_AVAILABILITY_ZONES}") \
-			$(if ${PULL_SECRET},--pull-secret-file "${PULL_SECRET}") \
-			--sts --mode auto; \
-	fi
+	@echo "Deploying ROSA HCP cluster using Terraform..."
+	@cd rosa/terraform && \
+	terraform init && \
+	terraform plan \
+		-var="rosa_token=${ROSA_TOKEN}" \
+		-var="cluster_name=${CLUSTER_NAME}" \
+		-var="aws_region=${ROSA_REGION}" \
+		-var="rosa_version=${ROSA_VERSION}" \
+		-var="worker_replicas=${ROSA_WORKER_REPLICAS}" \
+		-var="worker_machine_type=${ROSA_WORKER_MACHINE_TYPE}" \
+		-var="domain_name=${ROSA_DOMAIN}" \
+		-var="admin_password=${CLUSTER_ADMIN_PASSWORD}" \
+		$(if ${ROSA_SUBNET_IDS},-var="create_vpc=false" -var='existing_subnet_ids=["$(shell echo ${ROSA_SUBNET_IDS} | sed 's/,/","/g')"]') \
+		$(if ${ROSA_AVAILABILITY_ZONES},-var='availability_zones=["$(shell echo ${ROSA_AVAILABILITY_ZONES} | sed 's/,/","/g')"]') && \
+	terraform apply \
+		-var="rosa_token=${ROSA_TOKEN}" \
+		-var="cluster_name=${CLUSTER_NAME}" \
+		-var="aws_region=${ROSA_REGION}" \
+		-var="rosa_version=${ROSA_VERSION}" \
+		-var="worker_replicas=${ROSA_WORKER_REPLICAS}" \
+		-var="worker_machine_type=${ROSA_WORKER_MACHINE_TYPE}" \
+		-var="domain_name=${ROSA_DOMAIN}" \
+		-var="admin_password=${CLUSTER_ADMIN_PASSWORD}" \
+		$(if ${ROSA_SUBNET_IDS},-var="create_vpc=false" -var='existing_subnet_ids=["$(shell echo ${ROSA_SUBNET_IDS} | sed 's/,/","/g')"]') \
+		$(if ${ROSA_AVAILABILITY_ZONES},-var='availability_zones=["$(shell echo ${ROSA_AVAILABILITY_ZONES} | sed 's/,/","/g')"]') \
+		-auto-approve
 
-.PHONY: rosa-cluster-status
-rosa-cluster-status:  ## Get ROSA cluster status
+.PHONY: rosa-hcp-destroy
+rosa-hcp-destroy:  ## Destroy ROSA HCP cluster and all resources using Terraform
 	$(call required-environment-variables,ROSA_TOKEN CLUSTER_NAME)
-	rosa describe cluster --cluster "${CLUSTER_NAME}"
+	@echo "Destroying ROSA HCP cluster using Terraform..."
+	@cd rosa/terraform && \
+	terraform destroy \
+		-var="rosa_token=${ROSA_TOKEN}" \
+		-var="cluster_name=${CLUSTER_NAME}" \
+		-var="aws_region=${ROSA_REGION}" \
+		-auto-approve
 
-.PHONY: rosa-cluster-delete
-rosa-cluster-delete:  ## Delete ROSA cluster
+.PHONY: rosa-hcp-plan
+rosa-hcp-plan:  ## Run terraform plan for ROSA HCP deployment
 	$(call required-environment-variables,ROSA_TOKEN CLUSTER_NAME)
-	rosa delete cluster --cluster "${CLUSTER_NAME}" --yes
+	@cd rosa/terraform && \
+	terraform plan \
+		-var="rosa_token=${ROSA_TOKEN}" \
+		-var="cluster_name=${CLUSTER_NAME}" \
+		-var="aws_region=${ROSA_REGION}" \
+		-var="rosa_version=${ROSA_VERSION}" \
+		-var="worker_replicas=${ROSA_WORKER_REPLICAS}" \
+		-var="worker_machine_type=${ROSA_WORKER_MACHINE_TYPE}" \
+		-var="domain_name=${ROSA_DOMAIN}" \
+		-var="admin_password=${CLUSTER_ADMIN_PASSWORD}" \
+		$(if ${ROSA_SUBNET_IDS},-var="create_vpc=false" -var='existing_subnet_ids=["$(shell echo ${ROSA_SUBNET_IDS} | sed 's/,/","/g')"]') \
+		$(if ${ROSA_AVAILABILITY_ZONES},-var='availability_zones=["$(shell echo ${ROSA_AVAILABILITY_ZONES} | sed 's/,/","/g')"]')
 
-.PHONY: rosa-cluster-admin
-rosa-cluster-admin:  ## Create cluster admin
+.PHONY: rosa-hcp-output
+rosa-hcp-output:  ## Show terraform outputs for ROSA HCP cluster
+	@cd rosa/terraform && terraform output -json
+
+.PHONY: rosa-hcp-kubeconfig
+rosa-hcp-kubeconfig:  ## Get kubeconfig for ROSA HCP cluster
 	$(call required-environment-variables,CLUSTER_NAME)
-	@echo "Creating cluster admin credentials..."
-	@if rosa describe admin --cluster "${CLUSTER_NAME}" >/dev/null 2>&1; then \
-		echo "Existing admin user found. Deleting it first..."; \
-		rosa delete admin --cluster "${CLUSTER_NAME}" --yes >/dev/null 2>&1; \
-		echo "Waiting for admin deletion to complete..."; \
-		sleep 5; \
-	fi
-	@rosa create admin --cluster "${CLUSTER_NAME}" --password "${CLUSTER_ADMIN_PASSWORD}" >/dev/null
-	@echo "\nCluster admin credentials created successfully!"
-	@echo "Username: kubeadmin"
-	@echo "Password: ${CLUSTER_ADMIN_PASSWORD}"
-	@echo "\nYou can use these credentials to log in to the cluster console or with 'oc login'"
+	@API_URL=$$(cd rosa/terraform && terraform output -raw cluster_api_url) && \
+	ADMIN_USER=$$(cd rosa/terraform && terraform output -json admin_credentials | jq -r '.username // "kubeadmin"') && \
+	echo "Logging in to ROSA HCP cluster..." && \
+	oc login "$$API_URL" -u "$$ADMIN_USER" -p "${CLUSTER_ADMIN_PASSWORD}"
 
-.PHONY: rosa-credentials
-rosa-credentials:  ## Get ROSA cluster credentials
-	$(call required-environment-variables,ROSA_TOKEN CLUSTER_NAME)
-	@rosa describe admin --cluster=${CLUSTER_NAME}
-
-.PHONY: rosa-kubeconfig
-rosa-kubeconfig:  ## Get ROSA kubeconfig file
-	$(call required-environment-variables,ROSA_TOKEN CLUSTER_NAME)
-	@echo "Logging in to ROSA..."
-	@rosa login --token="${ROSA_TOKEN}"
-	@echo "Setting up kubeconfig for cluster ${CLUSTER_NAME}..."
-	@API_URL=$$(rosa describe cluster --cluster "${CLUSTER_NAME}" --output json | jq -r '.api.url') && \
-	if [ -n "$$API_URL" ] && [ "$$API_URL" != "null" ]; then \
-		echo "API URL: $$API_URL"; \
-		ROSA_LOGIN_TOKEN=$$(rosa token) && \
-		oc login "$$API_URL" --token="$$ROSA_LOGIN_TOKEN" && \
-		echo "Successfully configured kubeconfig for cluster ${CLUSTER_NAME}"; \
-	else \
-		echo "Error: Could not retrieve API URL for cluster ${CLUSTER_NAME}"; \
-		echo "Make sure the cluster exists and is in a ready state"; \
-		exit 1; \
-	fi
-
-.PHONY: rosa-url
-rosa-url:  ## Get ROSA cluster URL
-	$(call required-environment-variables,ROSA_TOKEN CLUSTER_NAME)
-	@rosa describe cluster --cluster "${CLUSTER_NAME}" --output json | jq -r '.api.url'
-
-.PHONY: rosa-console-url
-rosa-console-url:  ## Get ROSA console URL
-	$(call required-environment-variables,ROSA_TOKEN CLUSTER_NAME)
-	@rosa describe cluster --cluster "${CLUSTER_NAME}" --output json | jq -r '.console.url'
-
+# Network deployment using Terraform
 .PHONY: rosa-network-deploy
 rosa-network-deploy:  ## Deploy VPC and subnets for ROSA using Terraform
 	$(call required-environment-variables,ROSA_REGION CLUSTER_NAME)
@@ -177,30 +118,12 @@ rosa-network-deploy:  ## Deploy VPC and subnets for ROSA using Terraform
 	terraform apply -var-file=network.tfvars -auto-approve
 	$(info VPC and subnets deployed for ROSA cluster using Terraform)
 
-.PHONY: rosa-oc-login
-rosa-oc-login:  ## Login with oc to existing ROSA cluster
-	$(call required-environment-variables,CLUSTER_NAME)
-	@API_URL=$$(rosa describe cluster --cluster "${CLUSTER_NAME}" --output json | jq -r '.api.url') && \
-	ADMIN_USER=$$(rosa describe admin --cluster "${CLUSTER_NAME}" | grep "Admin Username" | awk '{print $$3}') && \
-	ADMIN_PASS=$$(rosa describe admin --cluster "${CLUSTER_NAME}" | grep "Admin Password" | awk '{print $$3}') && \
-	oc login "$$API_URL" -u "$$ADMIN_USER" -p "$$ADMIN_PASS"
-
+# Domain records management
 .PHONY: rosa-domain-records
 rosa-domain-records:  ## Create domain records for ROSA using Terraform
 	$(call required-environment-variables,CLUSTER_NAME ROSA_DOMAIN)
-	rosa/terraform-domain-records.sh \
-		--domain ${ROSA_DOMAIN} \
-		--rosa-name ${CLUSTER_NAME}
-
-.PHONY: rosa-delete-operator-roles
-rosa-delete-operator-roles:  ## Delete ROSA operator roles
-	$(call required-environment-variables,CLUSTER_NAME)
-	rosa delete operator-roles --cluster "${CLUSTER_NAME}" --mode auto --yes
-
-.PHONY: rosa-delete-oidc-provider
-rosa-delete-oidc-provider:  ## Delete OIDC provider
-	$(call required-environment-variables,CLUSTER_NAME)
-	rosa delete oidc-provider --cluster "${CLUSTER_NAME}" --mode auto --yes
+	@echo "Domain records should be managed through Terraform configuration"
+	@echo "Set create_domain_records=true in your terraform.tfvars to enable domain record creation"
 
 .PHONY: rosa-delete-domain-records
 rosa-delete-domain-records:  ## Delete domain records using Terraform
@@ -219,31 +142,6 @@ rosa-delete-network:  ## Delete network using Terraform
 		terraform destroy -var-file=network.tfvars -auto-approve || true; \
 	fi
 	$(info Network destruction completed)
-
-.PHONY: rosa-cleanup
-rosa-cleanup: rosa-cluster-delete rosa-delete-operator-roles rosa-delete-oidc-provider rosa-delete-domain-records rosa-delete-network  ## Complete cleanup of ROSA cluster and resources
-	$(info ROSA cluster and associated resources cleanup complete)
-
-.PHONY: rosa-create-token
-rosa-create-token:  ## Create authentication token for ROSA cluster
-	@rosa token
-
-.PHONY: rosa-machine-pools
-rosa-machine-pools:  ## List machine pools for ROSA cluster
-	$(call required-environment-variables,CLUSTER_NAME)
-	rosa list machine-pools --cluster "${CLUSTER_NAME}"
-
-.PHONY: rosa-ingress
-rosa-ingress:  ## List ingress for ROSA cluster
-	$(call required-environment-variables,CLUSTER_NAME)
-	rosa list ingress --cluster "${CLUSTER_NAME}"
-
-.PHONY: rosa-identity-providers
-rosa-identity-providers:  ## List identity providers for ROSA cluster
-	$(call required-environment-variables,CLUSTER_NAME)
-	rosa list identity-providers --cluster "${CLUSTER_NAME}"
-
-# TODO: Add EFS configuration script/target for ROSA cluster.
 
 # Terraform-specific targets
 .PHONY: rosa-terraform-init

@@ -68,3 +68,68 @@ output "hosted_zone" {
   description = "Route53 hosted zone name"
   value       = var.domain_name
 }
+
+# ROSA HCP Cluster Outputs
+output "cluster_id" {
+  description = "Unique identifier of the ROSA HCP cluster"
+  value       = try(module.rosa_hcp.cluster_id, "")
+}
+
+output "cluster_name" {
+  description = "Name of the ROSA HCP cluster"
+  value       = var.cluster_name
+}
+
+output "cluster_api_url" {
+  description = "URL of the API server"
+  value       = try(module.rosa_hcp.api_url, "")
+}
+
+output "cluster_console_url" {
+  description = "URL of the console"
+  value       = try(module.rosa_hcp.console_url, "")
+}
+
+output "cluster_domain" {
+  description = "Domain of the cluster"
+  value       = try(module.rosa_hcp.domain, "")
+}
+
+output "cluster_state" {
+  description = "State of the cluster"
+  value       = try(module.rosa_hcp.state, "")
+}
+
+output "cluster_version" {
+  description = "OpenShift version of the cluster"
+  value       = try(module.rosa_hcp.current_version, var.rosa_version)
+}
+
+output "oidc_endpoint_url" {
+  description = "OIDC Endpoint URL"
+  value       = try(module.rosa_hcp.oidc_endpoint_url, "")
+}
+
+output "oidc_config_id" {
+  description = "OIDC Configuration ID"
+  value       = try(module.rosa_hcp.oidc_config_id, "")
+}
+
+output "account_role_prefix" {
+  description = "Prefix used for account IAM roles"
+  value       = var.account_role_prefix != "" ? var.account_role_prefix : "${var.cluster_name}-account"
+}
+
+output "operator_role_prefix" {
+  description = "Prefix used for operator IAM roles"
+  value       = var.operator_role_prefix != "" ? var.operator_role_prefix : "${var.cluster_name}-operator"
+}
+
+output "admin_credentials" {
+  description = "Admin credentials for the cluster (if created)"
+  value = var.create_admin_user ? {
+    username = var.admin_username
+    password = var.admin_password != "" ? "(set via variable)" : "(auto-generated - check Terraform state)"
+  } : null
+  sensitive = true
+}

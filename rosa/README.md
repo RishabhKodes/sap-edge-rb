@@ -6,151 +6,167 @@ SPDX-FileContributor: Manjun Jiao (@mjiao)
 SPDX-License-Identifier: Apache-2.0
 -->
 
+# ROSA Infrastructure with Terraform
 
-# ROSA Infrastructure Templates and Scripts
+This directory contains Terraform configurations for deploying Red Hat OpenShift Service on AWS (ROSA) clusters with Hosted Control Planes (HCP) architecture.
 
-This directory contains Terraform configurations and scripts for deploying Red Hat OpenShift Service on AWS (ROSA) clusters, equivalent to the Azure bicep templates for ARO.
+## Prerequisites
 
-### Prerequisites
+1. **Terraform** >= 1.4.6
+2. **AWS CLI** configured with appropriate credentials
+3. **OpenShift CLI (oc)** for cluster access
+4. **ROSA token** from https://console.redhat.com/openshift/token
+5. **jq** for JSON processing
+6. **Route53 hosted zone** (optional, for custom domain)
 
-1. **ROSA CLI installed and configured**
-   ```bash
-   # Install ROSA CLI
-   curl -LO https://mirror.openshift.com/pub/openshift-v4/clients/rosa/latest/rosa-linux.tar.gz
-   tar -xzf rosa-linux.tar.gz
-   sudo mv rosa /usr/local/bin/
+## Quick Start
 
-   # Login to ROSA
-   rosa login --token="your-rosa-token"
-   ```
+### 1. Configure Environment
 
-2. **AWS CLI configured with appropriate permissions**
-   ```bash
-   aws configure
-   ```
+You can configure the deployment using either environment variables or Terraform variables:
 
-3. **Route53 hosted zone created for your domain**
-   ```bash
-   aws route53 create-hosted-zone --name your-domain.com --caller-reference $(date +%s)
-   ```
+#### Option A: Using Environment Variables (Recommended)
 
-### Environment Variables
-
-Set the following variables in your environment or makefile:
+Create a `.env` file from the example:
 
 ```bash
-export CLUSTER_NAME=sapeic-cluster
-export ROSA_REGION=eu-central-1
-export ROSA_VERSION=4.18.13
-export ROSA_DOMAIN=sapeic.com
-export ROSA_TOKEN=your-rosa-token
+cd terraform
+cp env.example .env
+# Edit .env with your configuration
 ```
 
-### Deployment Workflow
-
-1. **Full deployment** (recommended):
-   ```bash
-   make rosa-cluster
-   ```
-
-2. **Step-by-step deployment**:
-   ```bash
-   # 1. Verify domain zone exists
-   make rosa-domain-zone-exists
-
-   # 2. Deploy network infrastructure
-   make rosa-network-deploy
-
-   # 3. Create cluster
-   make rosa-cluster
-
-   # 4. Create operator roles and OIDC provider
-   make rosa-operator-roles
-   make rosa-oidc-provider
-
-   # 5. Create domain records (optional)
-   make rosa-domain-records
-   ```
-
-### Cluster Management
+Key variables to set in `.env`:
 
 ```bash
-# Get cluster status
-make rosa-cluster-status
+# Required
+ROSA_TOKEN=your-rosa-token-here
+CLUSTER_NAME=sapeic-cluster
+AWS_REGION=eu-central-1
 
-# Create cluster admin
-make rosa-cluster-admin
+# Optional
+ROSA_VERSION=4.14.24
+WORKER_MACHINE_TYPE=m5.xlarge
+WORKER_REPLICAS=3
+DOMAIN_NAME=your-domain.com  # Optional, requires Route53 hosted zone
 
-# Login with oc CLI
-make rosa-oc-login
+# EFS Configuration (optional)
+ENABLE_EFS=true
+EFS_PERFORMANCE_MODE=generalPurpose
+EFS_THROUGHPUT_MODE=elastic
+```
+
+Use the helper script to run Terraform with .env:
+
+```bash
+cd terraform
+./tf-with-env.sh init
+./tf-with-env.sh plan
+./tf-with-env.sh apply
+```
+
+#### Option B: Using terraform.tfvars
+
+Copy and edit the example file:
+
+```bash
+cd terraform
+cp terraform.tfvars.example terraform.tfvars
+# Edit terraform.tfvars with your configuration
+```
+
+Then run Terraform normally:
+
+```bash
+terraform init
+terraform plan
+terraform apply
+```
+
+### 2. Deploy ROSA HCP Cluster
+
+```bash
+# Deploy cluster (without domain validation)
+make rosa-hcp-deploy
+
+# Deploy cluster with domain validation
+make rosa-hcp-deploy-with-domain
+
+# Check deployment status
+make rosa-hcp-output
 
 # Get cluster credentials
-make rosa-credentials
-
-# Get cluster URLs
-make rosa-url
-make rosa-console-url
+make rosa-hcp-kubeconfig
 ```
 
-### Cleanup
+### 3. Destroy Cluster
 
 ```bash
-# Complete cleanup (cluster + infrastructure)
-make rosa-cleanup
-
-# Individual cleanup steps
-make rosa-cluster-delete #recommended
-make rosa-delete-operator-roles
-make rosa-delete-oidc-provider
-make rosa-delete-domain-records
-make rosa-delete-network
+make rosa-hcp-destroy
 ```
 
-## Network Architecture
+## Terraform Configuration
 
-The `network.yaml` template creates:
+The Terraform configuration is located in `terraform/` and includes:
 
-- **VPC**: 10.0.0.0/16 CIDR block
-- **Public Subnets**:
-  - 10.0.0.0/24 (AZ-a)
-  - 10.0.1.0/24 (AZ-b)
-- **Private Subnets**:
-  - 10.0.2.0/24 (AZ-a)
-  - 10.0.3.0/24 (AZ-b)
-- **NAT Gateways**: One per AZ for private subnet internet access
-- **Route Tables**: Separate routing for public and private subnets
+- **rosa-hcp.tf**: Main ROSA HCP cluster configuration
+- **network.tf**: VPC and subnet configuration
+- **variables.tf**: All configurable variables
+- **outputs.tf**: Cluster information outputs
+- **provider.tf**: AWS and RHCS provider configuration
 
-## Domain Configuration
+### Key Features
 
-### A Records (default)
-When IP addresses can be resolved, creates A records pointing to cluster IPs:
-- `api.${CLUSTER_NAME}.${DOMAIN}` → API endpoint IP
-- `*.apps.${CLUSTER_NAME}.${DOMAIN}` → Ingress IP
-- `console-openshift-console.apps.${CLUSTER_NAME}.${DOMAIN}` → Ingress IP
+1. **Hosted Control Planes (HCP)**: Control plane runs in Red Hat's AWS account, reducing costs
+2. **Automatic VPC Creation**: Creates VPC with public and private subnets
+3. **IAM Role Management**: Automatically creates all required IAM roles
+4. **OIDC Provider**: Sets up OIDC for secure authentication
+5. **Flexible Configuration**: Supports custom domains, KMS encryption, and more
 
-### CNAME Records (fallback)
-When IP resolution fails, creates CNAME records pointing to original endpoints:
-- `api.${CLUSTER_NAME}.${DOMAIN}` → CNAME to API endpoint
-- `*.apps.${CLUSTER_NAME}.${DOMAIN}` → CNAME to ingress domain
-- `console-openshift-console.apps.${CLUSTER_NAME}.${DOMAIN}` → CNAME to console endpoint
+### Using Existing VPC
+
+To use an existing VPC, set these environment variables:
+
+```bash
+ROSA_SUBNET_IDS=subnet-xxx,subnet-yyy,subnet-zzz
+ROSA_AVAILABILITY_ZONES=us-east-1a,us-east-1b,us-east-1c
+```
+
+## Available Make Targets
+
+| Target | Description |
+|--------|-------------|
+| `rosa-hcp-deploy` | Deploy ROSA HCP cluster |
+| `rosa-hcp-destroy` | Destroy ROSA HCP cluster |
+| `rosa-hcp-plan` | Preview Terraform changes |
+| `rosa-hcp-output` | Show cluster information |
+| `rosa-hcp-kubeconfig` | Configure kubectl/oc access |
+| `rosa-terraform-init` | Initialize Terraform |
+| `rosa-terraform-validate` | Validate Terraform configuration |
+| `rosa-terraform-fmt` | Format Terraform files |
+
+## Advanced Configuration
+
+For detailed configuration options, see:
+- [terraform/terraform.tfvars.example](terraform/terraform.tfvars.example)
+- [terraform/README-ROSA-HCP.md](terraform/README-ROSA-HCP.md)
+
+## Architecture
+
+ROSA with HCP provides:
+- **Control plane** in Red Hat-managed AWS account
+- **Worker nodes** in your AWS account
+- **Cost optimization** through shared control plane
+- **Faster provisioning** and automatic scaling
+- **Enhanced reliability** with Red Hat managing critical components
 
 ## Troubleshooting
 
-### Common Issues
+1. **Subnet Count Error**: Worker replicas must be a multiple of private subnet count (3)
+2. **Domain Validation**: Ensure Route53 hosted zone exists before using custom domain
+3. **IAM Permissions**: Verify AWS credentials have sufficient permissions
 
-1. **Subnet ID errors**: Ensure the network infrastructure deployed successfully before creating the cluster
-2. **Domain resolution failures**: Script automatically falls back to CNAME records
-3. **Permission errors**: Verify AWS IAM permissions for Terraform, Route53, and ROSA operations
-4. **Region mismatches**: Ensure `ROSA_REGION` matches your AWS CLI default region
-
-### Viewing Stack Status
-
+For more help, check the logs:
 ```bash
-# Check network infrastructure status
 cd rosa/terraform
 terraform show
-
-# Or check specific resources
-terraform state list
-terraform state show <resource_name>
 ```

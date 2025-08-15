@@ -2,14 +2,15 @@
 # SPDX-License-Identifier: Apache-2.0
 
 # Data source to get the hosted zone
+# Only lookup if create_domain_records is true
 data "aws_route53_zone" "main" {
-  count = var.domain_name != "" ? 1 : 0
+  count = var.domain_name != "" && var.create_domain_records ? 1 : 0
   name  = var.domain_name
 }
 
 # API A Record
 resource "aws_route53_record" "api_a" {
-  count   = var.domain_name != "" && !var.use_cname_records && var.ipv4_address != "" ? 1 : 0
+  count   = var.domain_name != "" && var.create_domain_records && var.create_domain_records && !var.use_cname_records && var.ipv4_address != "" ? 1 : 0
   zone_id = data.aws_route53_zone.main[0].zone_id
   name    = "api.${var.cluster_name}.${var.domain_name}"
   type    = "A"
@@ -19,7 +20,7 @@ resource "aws_route53_record" "api_a" {
 
 # Apps Wildcard A Record
 resource "aws_route53_record" "apps_a" {
-  count   = var.domain_name != "" && !var.use_cname_records && var.ipv4_address != "" ? 1 : 0
+  count   = var.domain_name != "" && var.create_domain_records && !var.use_cname_records && var.ipv4_address != "" ? 1 : 0
   zone_id = data.aws_route53_zone.main[0].zone_id
   name    = "*.apps.${var.cluster_name}.${var.domain_name}"
   type    = "A"
@@ -29,7 +30,7 @@ resource "aws_route53_record" "apps_a" {
 
 # Console A Record
 resource "aws_route53_record" "console_a" {
-  count   = var.domain_name != "" && !var.use_cname_records && var.ipv4_address != "" ? 1 : 0
+  count   = var.domain_name != "" && var.create_domain_records && !var.use_cname_records && var.ipv4_address != "" ? 1 : 0
   zone_id = data.aws_route53_zone.main[0].zone_id
   name    = "console-openshift-console.apps.${var.cluster_name}.${var.domain_name}"
   type    = "A"
@@ -39,7 +40,7 @@ resource "aws_route53_record" "console_a" {
 
 # API CNAME Record
 resource "aws_route53_record" "api_cname" {
-  count   = var.domain_name != "" && var.use_cname_records && var.api_target != "" ? 1 : 0
+  count   = var.domain_name != "" && var.create_domain_records && var.use_cname_records && var.api_target != "" ? 1 : 0
   zone_id = data.aws_route53_zone.main[0].zone_id
   name    = "api.${var.cluster_name}.${var.domain_name}"
   type    = "CNAME"
@@ -49,7 +50,7 @@ resource "aws_route53_record" "api_cname" {
 
 # Apps Wildcard CNAME Record
 resource "aws_route53_record" "apps_cname" {
-  count   = var.domain_name != "" && var.use_cname_records && var.ingress_target != "" ? 1 : 0
+  count   = var.domain_name != "" && var.create_domain_records && var.use_cname_records && var.ingress_target != "" ? 1 : 0
   zone_id = data.aws_route53_zone.main[0].zone_id
   name    = "*.apps.${var.cluster_name}.${var.domain_name}"
   type    = "CNAME"
@@ -59,7 +60,7 @@ resource "aws_route53_record" "apps_cname" {
 
 # Console CNAME Record
 resource "aws_route53_record" "console_cname" {
-  count   = var.domain_name != "" && var.use_cname_records && var.ingress_target != "" ? 1 : 0
+  count   = var.domain_name != "" && var.create_domain_records && var.use_cname_records && var.ingress_target != "" ? 1 : 0
   zone_id = data.aws_route53_zone.main[0].zone_id
   name    = "console-openshift-console.apps.${var.cluster_name}.${var.domain_name}"
   type    = "CNAME"
