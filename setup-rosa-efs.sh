@@ -92,7 +92,7 @@ setup_environment() {
     fi
 
     # Source .env file if it exists
-    ENV_FILE="${ENV_FILE:-$TERRAFORM_DIR/.env}"
+    ENV_FILE="${ENV_FILE:-.env}"
     if [ -f "$ENV_FILE" ]; then
         log_info "Loading environment variables from: $ENV_FILE"
         # Export all variables from .env file
@@ -172,69 +172,78 @@ convert_env_to_tf_vars() {
         fi
     }
 
+    # Helper to add a variable
+    add_var() {
+        local name="$1"
+        local value="$2"
+        tf_vars+=" -var=$name=\"$value\""
+    }
+
     # Map environment variables to Terraform variables
-    [ -n "${ROSA_TOKEN:-}" ] && tf_vars+=" -var='rosa_token=$ROSA_TOKEN'"
-    [ -n "${CLUSTER_NAME:-}" ] && tf_vars+=" -var='cluster_name=$CLUSTER_NAME'"
-    [ -n "${AWS_REGION:-}" ] && tf_vars+=" -var='aws_region=$AWS_REGION'"
-    [ -n "${ROSA_VERSION:-}" ] && tf_vars+=" -var='rosa_version=$ROSA_VERSION'"
-    [ -n "${CHANNEL_GROUP:-}" ] && tf_vars+=" -var='channel_group=$CHANNEL_GROUP'"
-    [ -n "${WORKER_REPLICAS:-}" ] && tf_vars+=" -var='worker_replicas=$WORKER_REPLICAS'"
-    [ -n "${WORKER_MACHINE_TYPE:-}" ] && tf_vars+=" -var='worker_machine_type=$WORKER_MACHINE_TYPE'"
+    [ -n "${ROSA_TOKEN:-}" ] && tf_vars+=" -var=rosa_token=\"$ROSA_TOKEN\""
+    [ -n "${CLUSTER_NAME:-}" ] && tf_vars+=" -var=cluster_name=\"$CLUSTER_NAME\""
+    [ -n "${AWS_REGION:-}" ] && tf_vars+=" -var=aws_region=\"$AWS_REGION\""
+    [ -n "${ROSA_VERSION:-}" ] && tf_vars+=" -var=rosa_version=\"$ROSA_VERSION\""
+    [ -n "${CHANNEL_GROUP:-}" ] && tf_vars+=" -var=channel_group=\"$CHANNEL_GROUP\""
+    [ -n "${WORKER_REPLICAS:-}" ] && tf_vars+=" -var=worker_replicas=$WORKER_REPLICAS"
+    [ -n "${WORKER_MACHINE_TYPE:-}" ] && tf_vars+=" -var=worker_machine_type=\"$WORKER_MACHINE_TYPE\""
 
     # Network configuration
-    [ -n "${CREATE_VPC:-}" ] && tf_vars+=" -var='create_vpc=$(convert_bool "$CREATE_VPC")'"
-    [ -n "${EXISTING_SUBNET_IDS:-}" ] && tf_vars+=" -var='existing_subnet_ids=$(convert_list "$EXISTING_SUBNET_IDS")'"
-    [ -n "${AVAILABILITY_ZONES:-}" ] && tf_vars+=" -var='availability_zones=$(convert_list "$AVAILABILITY_ZONES")'"
+    [ -n "${CREATE_VPC:-}" ] && tf_vars+=" -var=create_vpc=$(convert_bool "$CREATE_VPC")"
+    [ -n "${EXISTING_SUBNET_IDS:-}" ] && tf_vars+=" -var=existing_subnet_ids=$(convert_list "$EXISTING_SUBNET_IDS")"
+    [ -n "${AVAILABILITY_ZONES:-}" ] && tf_vars+=" -var=availability_zones=$(convert_list "$AVAILABILITY_ZONES")"
 
     # VPC configuration
-    [ -n "${VPC_NAME:-}" ] && tf_vars+=" -var='vpc_name=$VPC_NAME'"
-    [ -n "${VPC_CIDR:-}" ] && tf_vars+=" -var='vpc_cidr=$VPC_CIDR'"
-    [ -n "${PUBLIC_SUBNET_1_CIDR:-}" ] && tf_vars+=" -var='public_subnet_1_cidr=$PUBLIC_SUBNET_1_CIDR'"
-    [ -n "${PUBLIC_SUBNET_2_CIDR:-}" ] && tf_vars+=" -var='public_subnet_2_cidr=$PUBLIC_SUBNET_2_CIDR'"
-    [ -n "${PUBLIC_SUBNET_3_CIDR:-}" ] && tf_vars+=" -var='public_subnet_3_cidr=$PUBLIC_SUBNET_3_CIDR'"
-    [ -n "${PRIVATE_SUBNET_1_CIDR:-}" ] && tf_vars+=" -var='private_subnet_1_cidr=$PRIVATE_SUBNET_1_CIDR'"
-    [ -n "${PRIVATE_SUBNET_2_CIDR:-}" ] && tf_vars+=" -var='private_subnet_2_cidr=$PRIVATE_SUBNET_2_CIDR'"
-    [ -n "${PRIVATE_SUBNET_3_CIDR:-}" ] && tf_vars+=" -var='private_subnet_3_cidr=$PRIVATE_SUBNET_3_CIDR'"
+    [ -n "${VPC_NAME:-}" ] && tf_vars+=" -var=vpc_name=\"$VPC_NAME\""
+    [ -n "${VPC_CIDR:-}" ] && tf_vars+=" -var=vpc_cidr=\"$VPC_CIDR\""
+    [ -n "${PUBLIC_SUBNET_1_CIDR:-}" ] && tf_vars+=" -var=public_subnet_1_cidr=\"$PUBLIC_SUBNET_1_CIDR\""
+    [ -n "${PUBLIC_SUBNET_2_CIDR:-}" ] && tf_vars+=" -var=public_subnet_2_cidr=\"$PUBLIC_SUBNET_2_CIDR\""
+    [ -n "${PUBLIC_SUBNET_3_CIDR:-}" ] && tf_vars+=" -var=public_subnet_3_cidr=\"$PUBLIC_SUBNET_3_CIDR\""
+    [ -n "${PRIVATE_SUBNET_1_CIDR:-}" ] && tf_vars+=" -var=private_subnet_1_cidr=\"$PRIVATE_SUBNET_1_CIDR\""
+    [ -n "${PRIVATE_SUBNET_2_CIDR:-}" ] && tf_vars+=" -var=private_subnet_2_cidr=\"$PRIVATE_SUBNET_2_CIDR\""
+    [ -n "${PRIVATE_SUBNET_3_CIDR:-}" ] && tf_vars+=" -var=private_subnet_3_cidr=\"$PRIVATE_SUBNET_3_CIDR\""
 
     # Domain configuration
-    [ -n "${DOMAIN_NAME:-}" ] && tf_vars+=" -var='domain_name=$DOMAIN_NAME'"
-    [ -n "${CREATE_DOMAIN_RECORDS:-}" ] && tf_vars+=" -var='create_domain_records=$(convert_bool "$CREATE_DOMAIN_RECORDS")'"
-    [ -n "${USE_CNAME_RECORDS:-}" ] && tf_vars+=" -var='use_cname_records=$(convert_bool "$USE_CNAME_RECORDS")'"
+    [ -n "${DOMAIN_NAME:-}" ] && tf_vars+=" -var=domain_name=\"$DOMAIN_NAME\""
+    [ -n "${CREATE_DOMAIN_RECORDS:-}" ] && tf_vars+=" -var=create_domain_records=$(convert_bool "$CREATE_DOMAIN_RECORDS")"
+    [ -n "${USE_CNAME_RECORDS:-}" ] && tf_vars+=" -var=use_cname_records=$(convert_bool "$USE_CNAME_RECORDS")"
 
     # Cluster access
-    [ -n "${PRIVATE_CLUSTER:-}" ] && tf_vars+=" -var='private_cluster=$(convert_bool "$PRIVATE_CLUSTER")'"
-    [ -n "${CREATE_ADMIN_USER:-}" ] && tf_vars+=" -var='create_admin_user=$(convert_bool "$CREATE_ADMIN_USER")'"
-    [ -n "${ADMIN_USERNAME:-}" ] && tf_vars+=" -var='admin_username=$ADMIN_USERNAME'"
-    [ -n "${ADMIN_PASSWORD:-}" ] && tf_vars+=" -var='admin_password=$ADMIN_PASSWORD'"
+    [ -n "${PRIVATE_CLUSTER:-}" ] && tf_vars+=" -var=private_cluster=$(convert_bool "$PRIVATE_CLUSTER")"
+    [ -n "${CREATE_ADMIN_USER:-}" ] && tf_vars+=" -var=create_admin_user=$(convert_bool "$CREATE_ADMIN_USER")"
+    [ -n "${ADMIN_USERNAME:-}" ] && tf_vars+=" -var=admin_username=\"$ADMIN_USERNAME\""
+    [ -n "${ADMIN_PASSWORD:-}" ] && tf_vars+=" -var=admin_password=\"$ADMIN_PASSWORD\""
 
     # Other configurations
-    [ -n "${ENABLE_AUTOSCALING:-}" ] && tf_vars+=" -var='enable_autoscaling=$(convert_bool "$ENABLE_AUTOSCALING")'"
-    [ -n "${MIN_REPLICAS:-}" ] && tf_vars+=" -var='min_replicas=$MIN_REPLICAS'"
-    [ -n "${MAX_REPLICAS:-}" ] && tf_vars+=" -var='max_replicas=$MAX_REPLICAS'"
-    [ -n "${KMS_KEY_ARN:-}" ] && tf_vars+=" -var='kms_key_arn=$KMS_KEY_ARN'"
-    [ -n "${CREATE_ACCOUNT_ROLES:-}" ] && tf_vars+=" -var='create_account_roles=$(convert_bool "$CREATE_ACCOUNT_ROLES")'"
-    [ -n "${CREATE_OIDC:-}" ] && tf_vars+=" -var='create_oidc=$(convert_bool "$CREATE_OIDC")'"
-    [ -n "${CREATE_OPERATOR_ROLES:-}" ] && tf_vars+=" -var='create_operator_roles=$(convert_bool "$CREATE_OPERATOR_ROLES")'"
-    [ -n "${ACCOUNT_ROLE_PREFIX:-}" ] && tf_vars+=" -var='account_role_prefix=$ACCOUNT_ROLE_PREFIX'"
-    [ -n "${OPERATOR_ROLE_PREFIX:-}" ] && tf_vars+=" -var='operator_role_prefix=$OPERATOR_ROLE_PREFIX'"
-    [ -n "${IAM_ROLE_PATH:-}" ] && tf_vars+=" -var='iam_role_path=$IAM_ROLE_PATH'"
-    [ -n "${IAM_ROLE_PERMISSIONS_BOUNDARY:-}" ] && tf_vars+=" -var='iam_role_permissions_boundary=$IAM_ROLE_PERMISSIONS_BOUNDARY'"
-    [ -n "${WAIT_FOR_CLUSTER:-}" ] && tf_vars+=" -var='wait_for_cluster=$(convert_bool "$WAIT_FOR_CLUSTER")'"
-    [ -n "${ENVIRONMENT_TAG:-}" ] && tf_vars+=" -var='environment_tag=$ENVIRONMENT_TAG'"
-    [ -n "${DNS_TTL:-}" ] && tf_vars+=" -var='dns_ttl=$DNS_TTL'"
+    [ -n "${ENABLE_AUTOSCALING:-}" ] && tf_vars+=" -var=enable_autoscaling=$(convert_bool "$ENABLE_AUTOSCALING")"
+    [ -n "${MIN_REPLICAS:-}" ] && tf_vars+=" -var=min_replicas=$MIN_REPLICAS"
+    [ -n "${MAX_REPLICAS:-}" ] && tf_vars+=" -var=max_replicas=$MAX_REPLICAS"
+    [ -n "${KMS_KEY_ARN:-}" ] && tf_vars+=" -var=kms_key_arn=\"$KMS_KEY_ARN\""
+    [ -n "${CREATE_ACCOUNT_ROLES:-}" ] && tf_vars+=" -var=create_account_roles=$(convert_bool "$CREATE_ACCOUNT_ROLES")"
+    [ -n "${CREATE_OIDC:-}" ] && tf_vars+=" -var=create_oidc=$(convert_bool "$CREATE_OIDC")"
+    [ -n "${CREATE_OPERATOR_ROLES:-}" ] && tf_vars+=" -var=create_operator_roles=$(convert_bool "$CREATE_OPERATOR_ROLES")"
+    [ -n "${ACCOUNT_ROLE_PREFIX:-}" ] && tf_vars+=" -var=account_role_prefix=\"$ACCOUNT_ROLE_PREFIX\""
+    [ -n "${OPERATOR_ROLE_PREFIX:-}" ] && tf_vars+=" -var=operator_role_prefix=\"$OPERATOR_ROLE_PREFIX\""
+    [ -n "${IAM_ROLE_PATH:-}" ] && tf_vars+=" -var=iam_role_path=\"$IAM_ROLE_PATH\""
+    [ -n "${IAM_ROLE_PERMISSIONS_BOUNDARY:-}" ] && tf_vars+=" -var=iam_role_permissions_boundary=\"$IAM_ROLE_PERMISSIONS_BOUNDARY\""
+    [ -n "${OIDC_ENDPOINT_URL:-}" ] && tf_vars+=" -var=oidc_endpoint_url=\"$OIDC_ENDPOINT_URL\""
+    [ -n "${OIDC_CONFIG_ID:-}" ] && tf_vars+=" -var=oidc_config_id=\"$OIDC_CONFIG_ID\""
+    [ -n "${WAIT_FOR_CLUSTER:-}" ] && tf_vars+=" -var=wait_for_cluster=$(convert_bool "$WAIT_FOR_CLUSTER")"
+    [ -n "${ENVIRONMENT_TAG:-}" ] && tf_vars+=" -var=environment_tag=\"$ENVIRONMENT_TAG\""
+    [ -n "${DNS_TTL:-}" ] && tf_vars+=" -var=dns_ttl=$DNS_TTL"
 
     # EFS configuration
-    [ -n "${ENABLE_EFS:-}" ] && tf_vars+=" -var='enable_efs=$(convert_bool "$ENABLE_EFS")'"
-    [ -n "${EFS_PERFORMANCE_MODE:-}" ] && tf_vars+=" -var='efs_performance_mode=$EFS_PERFORMANCE_MODE'"
-    [ -n "${EFS_THROUGHPUT_MODE:-}" ] && tf_vars+=" -var='efs_throughput_mode=$EFS_THROUGHPUT_MODE'"
-    [ -n "${EFS_PROVISIONED_THROUGHPUT:-}" ] && tf_vars+=" -var='efs_provisioned_throughput=$EFS_PROVISIONED_THROUGHPUT'"
-    [ -n "${EFS_KMS_KEY_ARN:-}" ] && tf_vars+=" -var='efs_kms_key_arn=$EFS_KMS_KEY_ARN'"
-    [ -n "${EFS_TRANSITION_TO_IA:-}" ] && tf_vars+=" -var='efs_transition_to_ia=$EFS_TRANSITION_TO_IA'"
-    [ -n "${EFS_TRANSITION_TO_PRIMARY_STORAGE_CLASS:-}" ] && tf_vars+=" -var='efs_transition_to_primary_storage_class=$EFS_TRANSITION_TO_PRIMARY_STORAGE_CLASS'"
+    [ -n "${ENABLE_EFS:-}" ] && tf_vars+=" -var=enable_efs=$(convert_bool "$ENABLE_EFS")"
+    [ -n "${EFS_PERFORMANCE_MODE:-}" ] && tf_vars+=" -var=efs_performance_mode=\"$EFS_PERFORMANCE_MODE\""
+    [ -n "${EFS_THROUGHPUT_MODE:-}" ] && tf_vars+=" -var=efs_throughput_mode=\"$EFS_THROUGHPUT_MODE\""
+    [ -n "${EFS_PROVISIONED_THROUGHPUT:-}" ] && tf_vars+=" -var=efs_provisioned_throughput=$EFS_PROVISIONED_THROUGHPUT"
+    [ -n "${EFS_KMS_KEY_ARN:-}" ] && tf_vars+=" -var=efs_kms_key_arn=\"$EFS_KMS_KEY_ARN\""
+    [ -n "${EFS_TRANSITION_TO_IA:-}" ] && tf_vars+=" -var=efs_transition_to_ia=\"$EFS_TRANSITION_TO_IA\""
+    [ -n "${EFS_TRANSITION_TO_PRIMARY_STORAGE_CLASS:-}" ] && tf_vars+=" -var=efs_transition_to_primary_storage_class=\"$EFS_TRANSITION_TO_PRIMARY_STORAGE_CLASS\""
 
     # Additional tags require special handling
     if [ -n "${ADDITIONAL_TAGS:-}" ]; then
-        tf_vars+=" -var='additional_tags=$(convert_map "$ADDITIONAL_TAGS")'"
+        tf_vars+=" -var=additional_tags=$(convert_map "$ADDITIONAL_TAGS")"
     fi
 
     echo "$tf_vars"
@@ -252,15 +261,63 @@ apply_terraform_efs() {
         terraform init
     fi
 
-    # Convert environment variables to Terraform variables
-    TF_VARS=$(convert_env_to_tf_vars)
+    # Export all environment variables as TF_VAR_ prefixed variables
+    # This is cleaner than building a command line with quotes
+    export TF_VAR_rosa_token="${ROSA_TOKEN:-}"
+    export TF_VAR_cluster_name="${CLUSTER_NAME:-}"
+    export TF_VAR_aws_region="${AWS_REGION:-}"
+    export TF_VAR_rosa_version="${ROSA_VERSION:-}"
+    export TF_VAR_channel_group="${CHANNEL_GROUP:-}"
+    export TF_VAR_worker_replicas="${WORKER_REPLICAS:-}"
+    export TF_VAR_worker_machine_type="${WORKER_MACHINE_TYPE:-}"
+    export TF_VAR_create_vpc="${CREATE_VPC:-true}"
+    export TF_VAR_vpc_name="${VPC_NAME:-}"
+    export TF_VAR_vpc_cidr="${VPC_CIDR:-}"
+    export TF_VAR_environment_tag="${ENVIRONMENT_TAG:-}"
+    export TF_VAR_oidc_endpoint_url="${OIDC_ENDPOINT_URL:-}"
+    export TF_VAR_oidc_config_id="${OIDC_CONFIG_ID:-}"
+    export TF_VAR_enable_efs="true"  # Force enable EFS
 
-    # Force enable EFS
-    TF_VARS+=" -var='enable_efs=true'"
+    # Convert boolean strings to lowercase for Terraform
+    [ -n "${CREATE_VPC:-}" ] && export TF_VAR_create_vpc=$(echo "$CREATE_VPC" | tr '[:upper:]' '[:lower:]')
+    [ -n "${CREATE_OIDC:-}" ] && export TF_VAR_create_oidc=$(echo "${CREATE_OIDC:-true}" | tr '[:upper:]' '[:lower:]')
+    [ -n "${CREATE_ACCOUNT_ROLES:-}" ] && export TF_VAR_create_account_roles=$(echo "${CREATE_ACCOUNT_ROLES:-true}" | tr '[:upper:]' '[:lower:]')
+    [ -n "${CREATE_OPERATOR_ROLES:-}" ] && export TF_VAR_create_operator_roles=$(echo "${CREATE_OPERATOR_ROLES:-true}" | tr '[:upper:]' '[:lower:]')
 
-    # Plan with environment variables
-    log_info "Planning Terraform changes with EFS enabled..."
-    eval "terraform plan $TF_VARS -out=tfplan"
+    # Debug: Show key variables
+    log_info "Debug: TF_VAR_enable_efs=$TF_VAR_enable_efs"
+    log_info "Debug: TF_VAR_oidc_endpoint_url=$TF_VAR_oidc_endpoint_url"
+    log_info "Debug: TF_VAR_oidc_config_id=$TF_VAR_oidc_config_id"
+
+    # Handle complex types
+    if [ -n "${ADDITIONAL_TAGS:-}" ]; then
+        # Convert key=value,key2=value2 to JSON
+        export TF_VAR_additional_tags=$(echo "{${ADDITIONAL_TAGS}}" | sed 's/=/":"/g' | sed 's/,/","/g' | sed 's/{/{"/g' | sed 's/}/"}/g')
+    fi
+
+    # Plan with environment variables, targeting only EFS resources
+    log_info "Planning Terraform changes with EFS enabled (targeting EFS resources only)..."
+
+    # Define the EFS resource targets
+    # Since resources use count, we need to target with index notation
+    EFS_TARGETS=(
+        "-target=aws_efs_file_system.rosa_efs[0]"
+        "-target=aws_efs_mount_target.rosa_efs"
+        "-target=aws_security_group.efs[0]"
+        "-target=aws_security_group_rule.efs_ingress[0]"
+        "-target=aws_security_group_rule.efs_from_workers[0]"
+        "-target=aws_iam_policy.efs_csi_driver[0]"
+        "-target=aws_iam_role.efs_csi_driver[0]"
+        "-target=aws_iam_role_policy_attachment.efs_csi_driver[0]"
+    )
+
+    # Run terraform plan with targets (variables are now in environment)
+    log_info "Running terraform plan with environment variables..."
+
+    if ! terraform plan "${EFS_TARGETS[@]}" -out=tfplan; then
+        log_error "Terraform plan failed"
+        exit 1
+    fi
 
     # Ask for confirmation
     read -r -p "Do you want to apply these changes? (yes/no): " confirm

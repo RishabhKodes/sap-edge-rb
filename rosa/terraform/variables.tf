@@ -277,3 +277,65 @@ variable "use_cname_records" {
   type        = bool
   default     = false
 }
+
+# EFS Configuration Variables
+variable "enable_efs" {
+  description = "Whether to create and configure EFS for the ROSA cluster"
+  type        = bool
+  default     = false
+}
+
+variable "efs_performance_mode" {
+  description = "Performance mode for EFS (generalPurpose or maxIO)"
+  type        = string
+  default     = "generalPurpose"
+  validation {
+    condition     = contains(["generalPurpose", "maxIO"], var.efs_performance_mode)
+    error_message = "EFS performance mode must be either 'generalPurpose' or 'maxIO'."
+  }
+}
+
+variable "efs_throughput_mode" {
+  description = "Throughput mode for EFS (bursting, provisioned, or elastic)"
+  type        = string
+  default     = "bursting"
+  validation {
+    condition     = contains(["bursting", "provisioned", "elastic"], var.efs_throughput_mode)
+    error_message = "EFS throughput mode must be 'bursting', 'provisioned', or 'elastic'."
+  }
+}
+
+variable "efs_provisioned_throughput" {
+  description = "Provisioned throughput in MiB/s (required when throughput_mode is 'provisioned')"
+  type        = number
+  default     = null
+}
+
+variable "efs_kms_key_arn" {
+  description = "ARN of KMS key to use for EFS encryption (uses AWS managed key if not specified)"
+  type        = string
+  default     = ""
+}
+
+variable "efs_transition_to_ia" {
+  description = "Number of days after which to transition files to Infrequent Access storage class"
+  type        = string
+  default     = "AFTER_30_DAYS"
+  validation {
+    condition = contains([
+      "AFTER_1_DAY", "AFTER_7_DAYS", "AFTER_14_DAYS", "AFTER_30_DAYS",
+      "AFTER_60_DAYS", "AFTER_90_DAYS", "AFTER_180_DAYS", "AFTER_270_DAYS", "AFTER_365_DAYS"
+    ], var.efs_transition_to_ia)
+    error_message = "Invalid EFS transition to IA value."
+  }
+}
+
+variable "efs_transition_to_primary_storage_class" {
+  description = "Whether to transition files back from IA to primary storage on first access"
+  type        = string
+  default     = "AFTER_1_ACCESS"
+  validation {
+    condition     = contains(["AFTER_1_ACCESS", "NONE"], var.efs_transition_to_primary_storage_class)
+    error_message = "EFS transition to primary storage class must be 'AFTER_1_ACCESS' or 'NONE'."
+  }
+}
