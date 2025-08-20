@@ -18,13 +18,19 @@ rosa-domain-zone-exists:  ## Fail if Route53 hosted zone does not exist
 	$(call required-environment-variables,ROSA_DOMAIN)
 	ROSA_DOMAIN=${ROSA_DOMAIN} hack/rosa-domain-zone-exists.sh
 
+# Cluster status check targets
+.PHONY: rosa-cluster-status
+rosa-cluster-status:  ## Check if ROSA cluster already exists and show its status
+	$(call required-environment-variables,ROSA_TOKEN CLUSTER_NAME)
+	@ROSA_TOKEN=${ROSA_TOKEN} CLUSTER_NAME=${CLUSTER_NAME} hack/check-rosa-cluster-status.sh
+
 # ROSA HCP Terraform deployment targets
 .PHONY: rosa-hcp-deploy
-rosa-hcp-deploy: rosa-hcp-terraform-deploy  ## Deploy ROSA HCP cluster using Terraform
+rosa-hcp-deploy: rosa-cluster-status rosa-hcp-terraform-deploy  ## Deploy ROSA HCP cluster using Terraform
 	$(info ROSA HCP cluster deployment complete)
 
 .PHONY: rosa-hcp-deploy-with-domain
-rosa-hcp-deploy-with-domain: rosa-domain-zone-exists rosa-hcp-terraform-deploy  ## Deploy ROSA HCP cluster with custom domain
+rosa-hcp-deploy-with-domain: rosa-domain-zone-exists rosa-cluster-status rosa-hcp-terraform-deploy  ## Deploy ROSA HCP cluster with custom domain
 	$(info ROSA HCP cluster deployment complete)
 
 .PHONY: rosa-hcp-terraform-deploy

@@ -67,5 +67,8 @@ module "rosa_hcp" {
   wait_for_create_complete = var.wait_for_cluster
 }
 
-# Note: Additional ingress configuration can be added post-deployment
-# using the ROSA CLI or additional Terraform resources
+# Note: If a cluster already exists with the same name:
+# 1. Run 'make rosa-cluster-status' to check existing cluster details
+# 2. If you want to manage it with Terraform, import it using:
+#    terraform import module.rosa_hcp.rhcs_cluster_rosa_hcp.rosa_hcp_cluster <cluster-id>
+# 3. Terraform will then manage updates to the existing cluster
