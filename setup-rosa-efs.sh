@@ -97,6 +97,7 @@ setup_environment() {
         log_info "Loading environment variables from: $ENV_FILE"
         # Export all variables from .env file
         set -a
+        # shellcheck source=/dev/null
         source "$ENV_FILE"
         set +a
     else
@@ -150,7 +151,8 @@ convert_env_to_tf_vars() {
         if [ -z "$val" ]; then
             echo "[]"
         else
-            echo "[\"$(echo "$val" | sed 's/,/", "/g')\"]"
+            # Use parameter expansion instead of sed
+            echo "[\"${val//,/\", \"}\"]"
         fi
     }
 
@@ -164,19 +166,12 @@ convert_env_to_tf_vars() {
             IFS=',' read -ra PAIRS <<< "$val"
             for i in "${!PAIRS[@]}"; do
                 IFS='=' read -r key value <<< "${PAIRS[$i]}"
-                [ $i -gt 0 ] && map+=", "
+                [ "$i" -gt 0 ] && map+=", "
                 map+="\"$key\" = \"$value\""
             done
             map+="}"
             echo "$map"
         fi
-    }
-
-    # Helper to add a variable
-    add_var() {
-        local name="$1"
-        local value="$2"
-        tf_vars+=" -var=$name=\"$value\""
     }
 
     # Map environment variables to Terraform variables
@@ -279,10 +274,22 @@ apply_terraform_efs() {
     export TF_VAR_enable_efs="true"  # Force enable EFS
 
     # Convert boolean strings to lowercase for Terraform
-    [ -n "${CREATE_VPC:-}" ] && export TF_VAR_create_vpc=$(echo "$CREATE_VPC" | tr '[:upper:]' '[:lower:]')
-    [ -n "${CREATE_OIDC:-}" ] && export TF_VAR_create_oidc=$(echo "${CREATE_OIDC:-true}" | tr '[:upper:]' '[:lower:]')
-    [ -n "${CREATE_ACCOUNT_ROLES:-}" ] && export TF_VAR_create_account_roles=$(echo "${CREATE_ACCOUNT_ROLES:-true}" | tr '[:upper:]' '[:lower:]')
-    [ -n "${CREATE_OPERATOR_ROLES:-}" ] && export TF_VAR_create_operator_roles=$(echo "${CREATE_OPERATOR_ROLES:-true}" | tr '[:upper:]' '[:lower:]')
+    if [ -n "${CREATE_VPC:-}" ]; then
+        TF_VAR_create_vpc=$(echo "$CREATE_VPC" | tr '[:upper:]' '[:lower:]')
+        export TF_VAR_create_vpc
+    fi
+    if [ -n "${CREATE_OIDC:-}" ]; then
+        TF_VAR_create_oidc=$(echo "${CREATE_OIDC:-true}" | tr '[:upper:]' '[:lower:]')
+        export TF_VAR_create_oidc
+    fi
+    if [ -n "${CREATE_ACCOUNT_ROLES:-}" ]; then
+        TF_VAR_create_account_roles=$(echo "${CREATE_ACCOUNT_ROLES:-true}" | tr '[:upper:]' '[:lower:]')
+        export TF_VAR_create_account_roles
+    fi
+    if [ -n "${CREATE_OPERATOR_ROLES:-}" ]; then
+        TF_VAR_create_operator_roles=$(echo "${CREATE_OPERATOR_ROLES:-true}" | tr '[:upper:]' '[:lower:]')
+        export TF_VAR_create_operator_roles
+    fi
 
     # Debug: Show key variables
     log_info "Debug: TF_VAR_enable_efs=$TF_VAR_enable_efs"
@@ -292,7 +299,8 @@ apply_terraform_efs() {
     # Handle complex types
     if [ -n "${ADDITIONAL_TAGS:-}" ]; then
         # Convert key=value,key2=value2 to JSON
-        export TF_VAR_additional_tags=$(echo "{${ADDITIONAL_TAGS}}" | sed 's/=/":"/g' | sed 's/,/","/g' | sed 's/{/{"/g' | sed 's/}/"}/g')
+        TF_VAR_additional_tags=$(echo "{${ADDITIONAL_TAGS}}" | sed 's/=/":"/g' | sed 's/,/","/g' | sed 's/{/{"/g' | sed 's/}/"}/g')
+        export TF_VAR_additional_tags
     fi
 
     # Plan with environment variables, targeting only EFS resources

@@ -16,13 +16,11 @@ fi
 echo "Creating Route53 hosted zone for domain: ${DOMAIN}"
 
 # Create the hosted zone
-ZONE_OUTPUT=$(aws route53 create-hosted-zone \
+if ZONE_OUTPUT=$(aws route53 create-hosted-zone \
   --name "${DOMAIN}" \
   --caller-reference "$(date +%s)" \
   --hosted-zone-config Comment="Hosted zone for ROSA cluster" \
-  2>&1)
-
-if [ $? -eq 0 ]; then
+  2>&1); then
   ZONE_ID=$(echo "${ZONE_OUTPUT}" | jq -r '.HostedZone.Id')
   echo "Successfully created hosted zone with ID: ${ZONE_ID}"
   echo ""
