@@ -9,11 +9,7 @@ if [ -z "${ROSA_DOMAIN}" ]; then
   exit 1
 fi
 
-# Check if AWS CLI is installed
-if ! command -v aws &> /dev/null; then
-  echo "Error: AWS CLI is not installed"
-  exit 1
-fi
+set -o pipefail
 
 # Check if the Route53 hosted zone exists for the domain
 ZONE_ID=$(aws route53 list-hosted-zones-by-name \

@@ -2,7 +2,7 @@
 
 # Set default values if not provided in .env
 ROSA_TOKEN?=
-ROSA_REGION?=eu-central-1
+AWS_REGION?=eu-central-1
 ROSA_VERSION?=4.19.2
 ROSA_WORKER_MACHINE_TYPE?=m5.xlarge
 ROSA_WORKER_REPLICAS?=9
@@ -16,7 +16,7 @@ CLUSTER_NAME?=sapeic-cluster
 .PHONY: rosa-domain-zone-exists
 rosa-domain-zone-exists:  ## Fail if Route53 hosted zone does not exist
 	$(call required-environment-variables,ROSA_DOMAIN)
-	ROSA_DOMAIN=${ROSA_DOMAIN} hack/rosa-domain-zone-exists.sh
+	hack/rosa-domain-zone-exists.sh
 
 # Cluster status check targets
 .PHONY: rosa-cluster-status
@@ -42,7 +42,7 @@ rosa-hcp-terraform-deploy:  ## Deploy ROSA HCP cluster and all resources using T
 	terraform plan \
 		-var="rosa_token=${ROSA_TOKEN}" \
 		-var="cluster_name=${CLUSTER_NAME}" \
-		-var="aws_region=${ROSA_REGION}" \
+		-var="aws_region=${AWS_REGION}" \
 		-var="rosa_version=${ROSA_VERSION}" \
 		-var="worker_replicas=${ROSA_WORKER_REPLICAS}" \
 		-var="worker_machine_type=${ROSA_WORKER_MACHINE_TYPE}" \
@@ -53,7 +53,7 @@ rosa-hcp-terraform-deploy:  ## Deploy ROSA HCP cluster and all resources using T
 	terraform apply \
 		-var="rosa_token=${ROSA_TOKEN}" \
 		-var="cluster_name=${CLUSTER_NAME}" \
-		-var="aws_region=${ROSA_REGION}" \
+		-var="aws_region=${AWS_REGION}" \
 		-var="rosa_version=${ROSA_VERSION}" \
 		-var="worker_replicas=${ROSA_WORKER_REPLICAS}" \
 		-var="worker_machine_type=${ROSA_WORKER_MACHINE_TYPE}" \
@@ -71,7 +71,7 @@ rosa-hcp-destroy:  ## Destroy ROSA HCP cluster and all resources using Terraform
 	terraform destroy \
 		-var="rosa_token=${ROSA_TOKEN}" \
 		-var="cluster_name=${CLUSTER_NAME}" \
-		-var="aws_region=${ROSA_REGION}" \
+		-var="aws_region=${AWS_REGION}" \
 		-auto-approve
 
 .PHONY: rosa-hcp-plan
@@ -81,7 +81,7 @@ rosa-hcp-plan:  ## Run terraform plan for ROSA HCP deployment
 	terraform plan \
 		-var="rosa_token=${ROSA_TOKEN}" \
 		-var="cluster_name=${CLUSTER_NAME}" \
-		-var="aws_region=${ROSA_REGION}" \
+		-var="aws_region=${AWS_REGION}" \
 		-var="rosa_version=${ROSA_VERSION}" \
 		-var="worker_replicas=${ROSA_WORKER_REPLICAS}" \
 		-var="worker_machine_type=${ROSA_WORKER_MACHINE_TYPE}" \
@@ -105,10 +105,10 @@ rosa-hcp-kubeconfig:  ## Get kubeconfig for ROSA HCP cluster
 # Network deployment using Terraform
 .PHONY: rosa-network-deploy
 rosa-network-deploy:  ## Deploy VPC and subnets for ROSA using Terraform
-	$(call required-environment-variables,ROSA_REGION CLUSTER_NAME)
+	$(call required-environment-variables,AWS_REGION CLUSTER_NAME)
 	@echo "Deploying VPC and subnets for ROSA cluster using Terraform..."
 	@cd rosa/terraform && \
-	echo 'aws_region = "${ROSA_REGION}"' > network.tfvars && \
+	echo 'aws_region = "${AWS_REGION}"' > network.tfvars && \
 	echo 'cluster_name = "${CLUSTER_NAME}"' >> network.tfvars && \
 	echo 'vpc_name = "rosa-${CLUSTER_NAME}-vpc"' >> network.tfvars && \
 	echo 'environment_tag = "rosa"' >> network.tfvars && \
@@ -157,9 +157,9 @@ rosa-terraform-init:  ## Initialize Terraform in rosa/terraform directory
 
 .PHONY: rosa-terraform-plan
 rosa-terraform-plan:  ## Run terraform plan with network configuration
-	$(call required-environment-variables,ROSA_REGION CLUSTER_NAME)
+	$(call required-environment-variables,AWS_REGION CLUSTER_NAME)
 	@cd rosa/terraform && \
-	echo 'aws_region = "${ROSA_REGION}"' > network.tfvars && \
+	echo 'aws_region = "${AWS_REGION}"' > network.tfvars && \
 	echo 'cluster_name = "${CLUSTER_NAME}"' >> network.tfvars && \
 	echo 'vpc_name = "rosa-${CLUSTER_NAME}-vpc"' >> network.tfvars && \
 	echo 'environment_tag = "rosa"' >> network.tfvars && \
@@ -192,5 +192,5 @@ rosa-terraform-fmt:  ## Format Terraform files
 rosa-terraform-clean:  ## Clean Terraform working directory (remove .terraform and tfvars)
 	@echo "Cleaning Terraform working directory..."
 	@cd rosa/terraform && \
-	rm -rf .terraform .terraform.lock.hcl *.tfvars *.tfplan
+	rm -rf .terraform *.tfvars *.tfplan
 	$(info Terraform working directory cleaned)
