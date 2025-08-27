@@ -66,11 +66,3 @@ additional_tags = {
 wait_for_cluster = true                    # Wait for cluster to be ready
 environment_tag  = "rosa"                  # Environment tag for resources
 
-# EFS Configuration (optional)
-enable_efs                       = false   # Enable EFS creation and configuration
-# efs_performance_mode           = "generalPurpose"  # Performance mode: generalPurpose or maxIO
-# efs_throughput_mode            = "elastic"         # Throughput mode: bursting, provisioned, or elastic
-# efs_provisioned_throughput     = 100               # MiB/s (only when throughput_mode = "provisioned")
-# efs_kms_key_arn               = ""                 # KMS key ARN for EFS encryption (uses AWS managed key if not set)
-# efs_transition_to_ia          = "AFTER_30_DAYS"    # Lifecycle policy for IA transition
-# efs_transition_to_primary_storage_class = "AFTER_1_ACCESS"  # Transition back to primary storage
