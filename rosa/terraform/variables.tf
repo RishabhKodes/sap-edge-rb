@@ -339,3 +339,22 @@ variable "efs_transition_to_primary_storage_class" {
     error_message = "EFS transition to primary storage class must be 'AFTER_1_ACCESS' or 'NONE'."
   }
 }
+
+# Backend Infrastructure Variables
+variable "create_backend_resources" {
+  description = "Whether to create S3 bucket and DynamoDB table for Terraform backend"
+  type        = bool
+  default     = false
+}
+
+variable "terraform_state_bucket_name" {
+  description = "Name of the S3 bucket for Terraform state storage"
+  type        = string
+  default     = "sap-edge-terraform-state"
+}
+
+variable "terraform_state_lock_table_name" {
+  description = "Name of the DynamoDB table for Terraform state locking"
+  type        = string
+  default     = "terraform-state-lock"
+}
