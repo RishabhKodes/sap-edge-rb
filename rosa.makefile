@@ -1,28 +1,39 @@
--include .env
+# Include environment variables from .env file
+include .env
 
-# Set default values if not provided in .env
-ROSA_TOKEN?=
-AWS_REGION?=eu-central-1
-ROSA_VERSION?=4.19.2
-ROSA_WORKER_MACHINE_TYPE?=m5.xlarge
-ROSA_WORKER_REPLICAS?=9
-ROSA_DOMAIN?=
-ROSA_SUBNET_IDS?=
-ROSA_AVAILABILITY_ZONES?=
-CLUSTER_ADMIN_PASSWORD?=$(shell openssl rand -base64 12)
-CLUSTER_NAME?=sapeic-cluster
+# Helper function to check if terraform.tfvars exists
+check-tfvars = $(shell test -f rosa/terraform/terraform.tfvars || (echo "Error: terraform.tfvars not found. Copy terraform.tfvars.example to terraform.tfvars and configure it." && exit 1))
+
+# Extract values from terraform.tfvars for scripts that need them
+CLUSTER_NAME=$(shell grep -E '^cluster_name\s*=' rosa/terraform/terraform.tfvars 2>/dev/null | sed 's/.*=\s*"\([^"]*\)".*/\1/' || echo "sapeic-cluster")
+ROSA_DOMAIN=$(shell grep -E '^domain_name\s*=' rosa/terraform/terraform.tfvars 2>/dev/null | sed 's/.*=\s*"\([^"]*\)".*/\1/' || echo "")
+
+# ROSA authentication targets
+.PHONY: rosa-login
+rosa-login:  ## Login to ROSA using token
+	$(call check-tfvars)
+	@if [ -z "$(ROSA_TOKEN)" ]; then echo "Error: ROSA_TOKEN not set in .env file"; exit 1; fi
+	@rosa login --token="$(ROSA_TOKEN)"
 
 # Domain validation targets
 .PHONY: rosa-domain-zone-exists
 rosa-domain-zone-exists:  ## Fail if Route53 hosted zone does not exist
-	$(call required-environment-variables,ROSA_DOMAIN)
+	$(call check-tfvars)
+	@if [ -z "$(ROSA_DOMAIN)" ]; then echo "Error: domain_name not set in terraform.tfvars"; exit 1; fi
 	hack/rosa-domain-zone-exists.sh
+
+.PHONY: rosa-create-domain-zone
+rosa-create-domain-zone:  ## Create Route53 hosted zone for the domain
+	$(call check-tfvars)
+	@if [ -z "$(ROSA_DOMAIN)" ]; then echo "Error: domain_name not set in terraform.tfvars"; exit 1; fi
+	hack/create-route53-zone.sh
 
 # Cluster status check targets
 .PHONY: rosa-cluster-status
 rosa-cluster-status:  ## Check if ROSA cluster already exists and show its status
-	$(call required-environment-variables,ROSA_TOKEN CLUSTER_NAME)
-	@ROSA_TOKEN=${ROSA_TOKEN} CLUSTER_NAME=${CLUSTER_NAME} hack/check-rosa-cluster-status.sh
+	$(call check-tfvars)
+	@if [ -z "$(ROSA_TOKEN)" ]; then echo "Error: ROSA_TOKEN not set in .env file"; exit 1; fi
+	@hack/check-rosa-cluster-status.sh
 
 # ROSA HCP Terraform deployment targets
 .PHONY: rosa-hcp-deploy
@@ -30,65 +41,30 @@ rosa-hcp-deploy: rosa-cluster-status rosa-hcp-terraform-deploy  ## Deploy ROSA H
 	$(info ROSA HCP cluster deployment complete)
 
 .PHONY: rosa-hcp-deploy-with-domain
-rosa-hcp-deploy-with-domain: rosa-domain-zone-exists rosa-cluster-status rosa-hcp-terraform-deploy  ## Deploy ROSA HCP cluster with custom domain
-	$(info ROSA HCP cluster deployment complete)
+rosa-hcp-deploy-with-domain: rosa-create-domain-zone rosa-cluster-status rosa-hcp-terraform-deploy  ## Create domain zone and deploy ROSA HCP cluster with custom domain
+	$(info ROSA HCP cluster deployment with domain creation complete)
 
 .PHONY: rosa-hcp-terraform-deploy
 rosa-hcp-terraform-deploy:  ## Deploy ROSA HCP cluster and all resources using Terraform
-	$(call required-environment-variables,ROSA_TOKEN CLUSTER_NAME)
+	$(call check-tfvars)
 	@echo "Deploying ROSA HCP cluster using Terraform..."
 	@cd rosa/terraform && \
 	terraform init && \
-	terraform plan \
-		-var="rosa_token=${ROSA_TOKEN}" \
-		-var="cluster_name=${CLUSTER_NAME}" \
-		-var="aws_region=${AWS_REGION}" \
-		-var="rosa_version=${ROSA_VERSION}" \
-		-var="worker_replicas=${ROSA_WORKER_REPLICAS}" \
-		-var="worker_machine_type=${ROSA_WORKER_MACHINE_TYPE}" \
-		-var="domain_name=${ROSA_DOMAIN}" \
-		-var="admin_password=${CLUSTER_ADMIN_PASSWORD}" \
-		$(if ${ROSA_SUBNET_IDS},-var="create_vpc=false" -var='existing_subnet_ids=["$(shell echo ${ROSA_SUBNET_IDS} | sed 's/,/","/g')"]') \
-		$(if ${ROSA_AVAILABILITY_ZONES},-var='availability_zones=["$(shell echo ${ROSA_AVAILABILITY_ZONES} | sed 's/,/","/g')"]') && \
-	terraform apply \
-		-var="rosa_token=${ROSA_TOKEN}" \
-		-var="cluster_name=${CLUSTER_NAME}" \
-		-var="aws_region=${AWS_REGION}" \
-		-var="rosa_version=${ROSA_VERSION}" \
-		-var="worker_replicas=${ROSA_WORKER_REPLICAS}" \
-		-var="worker_machine_type=${ROSA_WORKER_MACHINE_TYPE}" \
-		-var="domain_name=${ROSA_DOMAIN}" \
-		-var="admin_password=${CLUSTER_ADMIN_PASSWORD}" \
-		$(if ${ROSA_SUBNET_IDS},-var="create_vpc=false" -var='existing_subnet_ids=["$(shell echo ${ROSA_SUBNET_IDS} | sed 's/,/","/g')"]') \
-		$(if ${ROSA_AVAILABILITY_ZONES},-var='availability_zones=["$(shell echo ${ROSA_AVAILABILITY_ZONES} | sed 's/,/","/g')"]') \
-		-auto-approve
+	terraform plan -var-file=terraform.tfvars && \
+	terraform apply -var-file=terraform.tfvars -auto-approve
 
 .PHONY: rosa-hcp-destroy
 rosa-hcp-destroy:  ## Destroy ROSA HCP cluster and all resources using Terraform
-	$(call required-environment-variables,ROSA_TOKEN CLUSTER_NAME)
+	$(call check-tfvars)
 	@echo "Destroying ROSA HCP cluster using Terraform..."
 	@cd rosa/terraform && \
-	terraform destroy \
-		-var="rosa_token=${ROSA_TOKEN}" \
-		-var="cluster_name=${CLUSTER_NAME}" \
-		-var="aws_region=${AWS_REGION}" \
-		-auto-approve
+	terraform destroy -var-file=terraform.tfvars -auto-approve
 
 .PHONY: rosa-hcp-plan
 rosa-hcp-plan:  ## Run terraform plan for ROSA HCP deployment
-	$(call required-environment-variables,ROSA_TOKEN CLUSTER_NAME)
+	$(call check-tfvars)
 	@cd rosa/terraform && \
-	terraform plan \
-		-var="rosa_token=${ROSA_TOKEN}" \
-		-var="cluster_name=${CLUSTER_NAME}" \
-		-var="aws_region=${AWS_REGION}" \
-		-var="rosa_version=${ROSA_VERSION}" \
-		-var="worker_replicas=${ROSA_WORKER_REPLICAS}" \
-		-var="worker_machine_type=${ROSA_WORKER_MACHINE_TYPE}" \
-		-var="domain_name=${ROSA_DOMAIN}" \
-		-var="admin_password=${CLUSTER_ADMIN_PASSWORD}" \
-		$(if ${ROSA_SUBNET_IDS},-var="create_vpc=false" -var='existing_subnet_ids=["$(shell echo ${ROSA_SUBNET_IDS} | sed 's/,/","/g')"]') \
-		$(if ${ROSA_AVAILABILITY_ZONES},-var='availability_zones=["$(shell echo ${ROSA_AVAILABILITY_ZONES} | sed 's/,/","/g')"]')
+	terraform plan -var-file=terraform.tfvars
 
 .PHONY: rosa-hcp-output
 rosa-hcp-output:  ## Show terraform outputs for ROSA HCP cluster
@@ -96,57 +72,29 @@ rosa-hcp-output:  ## Show terraform outputs for ROSA HCP cluster
 
 .PHONY: rosa-hcp-kubeconfig
 rosa-hcp-kubeconfig:  ## Get kubeconfig for ROSA HCP cluster
-	$(call required-environment-variables,CLUSTER_NAME)
-	@API_URL=$$(cd rosa/terraform && terraform output -raw cluster_api_url) && \
+	$(call check-tfvars)
+	@API_URL=$$(cd rosa/terraform && terraform output -raw api_endpoint) && \
 	ADMIN_USER=$$(cd rosa/terraform && terraform output -json admin_credentials | jq -r '.username // "kubeadmin"') && \
+	ADMIN_PASSWORD=$$(cd rosa/terraform && terraform output -json admin_credentials | jq -r '.password // ""') && \
 	echo "Logging in to ROSA HCP cluster..." && \
-	oc login "$$API_URL" -u "$$ADMIN_USER" -p "${CLUSTER_ADMIN_PASSWORD}"
+	oc login "$$API_URL" -u "$$ADMIN_USER" -p "$$ADMIN_PASSWORD"
 
 # Network deployment using Terraform
 .PHONY: rosa-network-deploy
 rosa-network-deploy:  ## Deploy VPC and subnets for ROSA using Terraform
-	$(call required-environment-variables,AWS_REGION CLUSTER_NAME)
+	$(call check-tfvars)
 	@echo "Deploying VPC and subnets for ROSA cluster using Terraform..."
 	@cd rosa/terraform && \
-	echo 'aws_region = "${AWS_REGION}"' > network.tfvars && \
-	echo 'cluster_name = "${CLUSTER_NAME}"' >> network.tfvars && \
-	echo 'vpc_name = "rosa-${CLUSTER_NAME}-vpc"' >> network.tfvars && \
-	echo 'environment_tag = "rosa"' >> network.tfvars && \
-	echo 'vpc_cidr = "10.0.0.0/16"' >> network.tfvars && \
-	echo 'public_subnet_1_cidr = "10.0.0.0/24"' >> network.tfvars && \
-	echo 'public_subnet_2_cidr = "10.0.1.0/24"' >> network.tfvars && \
-	echo 'public_subnet_3_cidr = "10.0.4.0/24"' >> network.tfvars && \
-	echo 'private_subnet_1_cidr = "10.0.2.0/24"' >> network.tfvars && \
-	echo 'private_subnet_2_cidr = "10.0.3.0/24"' >> network.tfvars && \
-	echo 'private_subnet_3_cidr = "10.0.5.0/24"' >> network.tfvars && \
 	terraform init && \
-	terraform plan -var-file=network.tfvars && \
-	terraform apply -var-file=network.tfvars -auto-approve
+	terraform plan -var-file=terraform.tfvars -target=aws_vpc.rosa_vpc -target=aws_subnet.public -target=aws_subnet.private && \
+	terraform apply -var-file=terraform.tfvars -target=aws_vpc.rosa_vpc -target=aws_subnet.public -target=aws_subnet.private -auto-approve
 	$(info VPC and subnets deployed for ROSA cluster using Terraform)
-
-# Domain records management
-.PHONY: rosa-domain-records
-rosa-domain-records:  ## Create domain records for ROSA using Terraform
-	$(call required-environment-variables,CLUSTER_NAME ROSA_DOMAIN)
-	@echo "Domain records should be managed through Terraform configuration"
-	@echo "Set create_domain_records=true in your terraform.tfvars to enable domain record creation"
-
-.PHONY: rosa-delete-domain-records
-rosa-delete-domain-records:  ## Delete domain records using Terraform
-	$(call required-environment-variables,CLUSTER_NAME)
-	@cd rosa/terraform && \
-	if [ -f terraform.tfvars ]; then \
-		terraform destroy -var-file=terraform.tfvars -auto-approve || true; \
-	fi
-	$(info Domain records destruction completed)
 
 .PHONY: rosa-delete-network
 rosa-delete-network:  ## Delete network using Terraform
-	$(call required-environment-variables,CLUSTER_NAME)
+	$(call check-tfvars)
 	@cd rosa/terraform && \
-	if [ -f network.tfvars ]; then \
-		terraform destroy -var-file=network.tfvars -auto-approve || true; \
-	fi
+	terraform destroy -var-file=terraform.tfvars -target=aws_vpc.rosa_vpc -target=aws_subnet.public -target=aws_subnet.private -auto-approve || true
 	$(info Network destruction completed)
 
 # Terraform-specific targets
@@ -156,21 +104,10 @@ rosa-terraform-init:  ## Initialize Terraform in rosa/terraform directory
 	@cd rosa/terraform && terraform init
 
 .PHONY: rosa-terraform-plan
-rosa-terraform-plan:  ## Run terraform plan with network configuration
-	$(call required-environment-variables,AWS_REGION CLUSTER_NAME)
+rosa-terraform-plan:  ## Run terraform plan with terraform.tfvars
+	$(call check-tfvars)
 	@cd rosa/terraform && \
-	echo 'aws_region = "${AWS_REGION}"' > network.tfvars && \
-	echo 'cluster_name = "${CLUSTER_NAME}"' >> network.tfvars && \
-	echo 'vpc_name = "rosa-${CLUSTER_NAME}-vpc"' >> network.tfvars && \
-	echo 'environment_tag = "rosa"' >> network.tfvars && \
-	echo 'vpc_cidr = "10.0.0.0/16"' >> network.tfvars && \
-	echo 'public_subnet_1_cidr = "10.0.0.0/24"' >> network.tfvars && \
-	echo 'public_subnet_2_cidr = "10.0.1.0/24"' >> network.tfvars && \
-	echo 'public_subnet_3_cidr = "10.0.4.0/24"' >> network.tfvars && \
-	echo 'private_subnet_1_cidr = "10.0.2.0/24"' >> network.tfvars && \
-	echo 'private_subnet_2_cidr = "10.0.3.0/24"' >> network.tfvars && \
-	echo 'private_subnet_3_cidr = "10.0.5.0/24"' >> network.tfvars && \
-	terraform plan -var-file=network.tfvars
+	terraform plan -var-file=terraform.tfvars
 
 .PHONY: rosa-terraform-output
 rosa-terraform-output:  ## Show terraform outputs
@@ -189,8 +126,8 @@ rosa-terraform-fmt:  ## Format Terraform files
 	@cd rosa/terraform && terraform fmt
 
 .PHONY: rosa-terraform-clean
-rosa-terraform-clean:  ## Clean Terraform working directory (remove .terraform and tfvars)
+rosa-terraform-clean:  ## Clean Terraform working directory (remove .terraform and tfplan files)
 	@echo "Cleaning Terraform working directory..."
 	@cd rosa/terraform && \
-	rm -rf .terraform *.tfvars *.tfplan
+	rm -rf .terraform *.tfplan
 	$(info Terraform working directory cleaned)

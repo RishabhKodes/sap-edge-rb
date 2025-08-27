@@ -4,8 +4,7 @@
 # Example Terraform variables file for ROSA HCP deployment
 # Copy this file to terraform.tfvars and update with your values
 
-# Required Variables
-rosa_token   = "your-rosa-token-here"      # Get from: https://console.redhat.com/openshift/token
+# Required variables
 cluster_name = "sapeic-cluster"            # Name for your ROSA HCP cluster
 aws_region   = "eu-central-1"              # AWS region for deployment
 

@@ -29,7 +29,7 @@ provider "aws" {
 }
 
 provider "rhcs" {
-  token = var.rosa_token
+  token = env.ROSA_TOKEN
   url   = "https://api.openshift.com"
 }
 

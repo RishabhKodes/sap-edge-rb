@@ -253,13 +253,6 @@ variable "wait_for_cluster" {
   default     = true
 }
 
-variable "rosa_token" {
-  description = "ROSA token for authentication"
-  type        = string
-  default     = ""
-  sensitive   = true
-}
-
 variable "dns_ttl" {
   description = "DNS record TTL in seconds"
   type        = number

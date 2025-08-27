@@ -6,37 +6,59 @@
 
 set -euo pipefail
 
-# Load environment variables if .env exists
-if [ -f .env ]; then
-    # shellcheck disable=SC1091
-    source .env
-fi
-
-# Set default values
-CLUSTER_NAME="${CLUSTER_NAME:-sapeic-cluster}"
-ROSA_TOKEN="${ROSA_TOKEN:-}"
-
-# Colors for output
-RED='\033[0;31m'
-GREEN='\033[0;32m'
+# Define colors
 YELLOW='\033[1;33m'
+GREEN='\033[0;32m'
 NC='\033[0m' # No Color
 
-# Check if ROSA CLI is installed
-if ! command -v rosa &> /dev/null; then
-    echo -e "${RED}Error: ROSA CLI is not installed. Please install it first.${NC}"
+# Get cluster name from terraform
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+TERRAFORM_DIR="${SCRIPT_DIR}/../rosa/terraform"
+
+if [ ! -d "${TERRAFORM_DIR}" ]; then
+    echo "Error: Terraform directory not found at ${TERRAFORM_DIR}"
     exit 1
 fi
 
-# Check if ROSA token is provided
-if [ -z "${ROSA_TOKEN}" ]; then
-    echo -e "${RED}Error: ROSA_TOKEN is not set. Please provide it in .env file or as environment variable.${NC}"
+cd "${TERRAFORM_DIR}"
+
+# Check if terraform state exists and get cluster name
+if [ ! -f "terraform.tfstate" ] && [ ! -f ".terraform/terraform.tfstate" ]; then
+    echo "No terraform state found. Terraform has not been initialized or applied yet."
+    echo "Run 'terraform init' and 'terraform apply' first."
     exit 1
 fi
 
-# Login to ROSA
+CLUSTER_NAME=$(terraform output -raw cluster_name 2>/dev/null)
+if [ -z "${CLUSTER_NAME}" ]; then
+    echo "Error: Could not get cluster_name from terraform output"
+    echo "Make sure terraform has been applied successfully"
+    exit 1
+fi
+
+# Get ROSA token and login
 echo "Logging in to ROSA..."
-rosa login --token="${ROSA_TOKEN}" >/dev/null 2>&1
+# Load .env file if it exists
+ENV_FILE="${SCRIPT_DIR}/../.env"
+if [ -f "${ENV_FILE}" ]; then
+    source "${ENV_FILE}"
+fi
+
+if [ -z "${ROSA_TOKEN}" ]; then
+    echo -e "${YELLOW}Warning: ROSA_TOKEN not found in environment.${NC}"
+    echo "Please set ROSA_TOKEN in .env file."
+    echo "Get a fresh token from: https://console.redhat.com/openshift/token"
+    echo ""
+    echo "Attempting to check cluster status without authentication..."
+elif ! rosa login --token="${ROSA_TOKEN}" >/dev/null 2>&1; then
+    echo -e "${YELLOW}Warning: ROSA login failed. This might be due to an expired or invalid token.${NC}"
+    echo "Please update the ROSA_TOKEN in .env file with a fresh token from:"
+    echo "https://console.redhat.com/openshift/token"
+    echo ""
+    echo "Attempting to check cluster status without authentication..."
+else
+    echo "Successfully logged in to ROSA."
+fi
 
 # Check if cluster exists
 echo "Checking for existing cluster: ${CLUSTER_NAME}"
