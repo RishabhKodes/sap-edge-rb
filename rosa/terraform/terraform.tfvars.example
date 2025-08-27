@@ -59,7 +59,6 @@ create_operator_roles = true               # Create operator IAM roles
 # Additional Tags (optional)
 additional_tags = {
   Project     = "SAP-EIC"
-  Owner       = "your-team"
   Environment = "production"
 }
 
