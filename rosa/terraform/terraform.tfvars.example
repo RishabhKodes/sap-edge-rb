@@ -22,7 +22,7 @@ create_vpc = true                          # Set to false if using existing VPC/
 # availability_zones = ["eu-central-1a", "eu-central-1b", "eu-central-1c"]
 
 # VPC Configuration (when create_vpc = true)
-vpc_name               = "rosa-sapeic-vpc"
+vpc_name               = "rosa-sapeic-cluster-vpc"
 vpc_cidr               = "10.0.0.0/16"
 public_subnet_1_cidr   = "10.0.0.0/24"
 public_subnet_2_cidr   = "10.0.1.0/24"
