@@ -26,7 +26,7 @@ output "admin_credentials" {
   description = "Admin credentials for the cluster (if created)"
   value = var.create_admin_user ? {
     username = var.admin_username
-    password = var.admin_password != "" ? var.admin_password : module.rosa_hcp.admin_password
+    password = var.admin_password != "" ? var.admin_password : "(use 'rosa create admin' command to generate)"
   } : null
   sensitive = true
 }
