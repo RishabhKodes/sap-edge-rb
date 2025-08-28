@@ -41,6 +41,7 @@ echo "Logging in to ROSA..."
 # Load .env file if it exists
 ENV_FILE="${SCRIPT_DIR}/../.env"
 if [ -f "${ENV_FILE}" ]; then
+    # shellcheck source=/dev/null
     source "${ENV_FILE}"
 fi
 
