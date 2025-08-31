@@ -1,5 +1,5 @@
 # Include environment variables from .env file
-include .env
+-include .env
 
 # Helper function to check if terraform.tfvars exists
 check-tfvars = $(shell test -f rosa/terraform/terraform.tfvars || (echo "Error: terraform.tfvars not found. Copy terraform.tfvars.example to terraform.tfvars and configure it." && exit 1))
