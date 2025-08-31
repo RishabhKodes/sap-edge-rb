@@ -1,11 +1,12 @@
 # Include environment variables from .env file
--include .env
+include .env
 
 # Helper function to check if terraform.tfvars exists
 check-tfvars = $(shell test -f rosa/terraform/terraform.tfvars || (echo "Error: terraform.tfvars not found. Copy terraform.tfvars.example to terraform.tfvars and configure it." && exit 1))
 
 # Extract values from terraform.tfvars for scripts that need them
-CLUSTER_NAME=$(shell grep -E '^cluster_name\s*=' rosa/terraform/terraform.tfvars 2>/dev/null | sed 's/.*=\s*"\([^"]*\)".*/\1/' || echo "sapeic-cluster")
+# CLUSTER_NAME can be overridden via command line: make rosa-hcp-deploy CLUSTER_NAME=my-cluster
+CLUSTER_NAME=$(shell grep '^cluster_name' rosa/terraform/terraform.tfvars 2>/dev/null | cut -d'"' -f2 || echo "sapeic-cluster")
 ROSA_DOMAIN=$(shell grep -E '^domain_name\s*=' rosa/terraform/terraform.tfvars 2>/dev/null | sed 's/.*=\s*"\([^"]*\)".*/\1/' || echo "")
 
 # ROSA authentication targets
@@ -47,24 +48,25 @@ rosa-hcp-deploy-with-domain: rosa-create-domain-zone rosa-cluster-status rosa-hc
 .PHONY: rosa-hcp-terraform-deploy
 rosa-hcp-terraform-deploy:  ## Deploy ROSA HCP cluster and all resources using Terraform
 	$(call check-tfvars)
-	@echo "Deploying ROSA HCP cluster using Terraform..."
+	@echo "Deploying ROSA HCP cluster using Terraform with cluster_name=$(CLUSTER_NAME)..."
 	@cd rosa/terraform && \
 	terraform init && \
-	terraform plan -var-file=terraform.tfvars && \
-	terraform apply -var-file=terraform.tfvars -auto-approve
+	terraform plan -var-file=terraform.tfvars -var="cluster_name=$(CLUSTER_NAME)" -var="vpc_name=rosa-$(CLUSTER_NAME)-vpc" && \
+	terraform apply -var-file=terraform.tfvars -var="cluster_name=$(CLUSTER_NAME)" -var="vpc_name=rosa-$(CLUSTER_NAME)-vpc" -auto-approve
 
 .PHONY: rosa-hcp-destroy
 rosa-hcp-destroy:  ## Destroy ROSA HCP cluster and all resources using Terraform
 	$(call check-tfvars)
-	@echo "Destroying ROSA HCP cluster using Terraform..."
+	@echo "Destroying ROSA HCP cluster using Terraform with cluster_name=$(CLUSTER_NAME)..."
 	@cd rosa/terraform && \
-	terraform destroy -var-file=terraform.tfvars -auto-approve
+	terraform destroy -var-file=terraform.tfvars -var="cluster_name=$(CLUSTER_NAME)" -var="vpc_name=rosa-$(CLUSTER_NAME)-vpc" -auto-approve
 
 .PHONY: rosa-hcp-plan
 rosa-hcp-plan:  ## Run terraform plan for ROSA HCP deployment
 	$(call check-tfvars)
+	@echo "Running terraform plan with cluster_name=$(CLUSTER_NAME)..."
 	@cd rosa/terraform && \
-	terraform plan -var-file=terraform.tfvars
+	terraform plan -var-file=terraform.tfvars -var="cluster_name=$(CLUSTER_NAME)" -var="vpc_name=rosa-$(CLUSTER_NAME)-vpc"
 
 .PHONY: rosa-hcp-output
 rosa-hcp-output:  ## Show terraform outputs for ROSA HCP cluster
@@ -83,11 +85,11 @@ rosa-hcp-kubeconfig:  ## Get kubeconfig for ROSA HCP cluster
 .PHONY: rosa-network-deploy
 rosa-network-deploy:  ## Deploy VPC and subnets for ROSA using Terraform
 	$(call check-tfvars)
-	@echo "Deploying VPC and subnets for ROSA cluster using Terraform..."
+	@echo "Deploying VPC and subnets for ROSA cluster using Terraform with cluster_name=$(CLUSTER_NAME)..."
 	@cd rosa/terraform && \
 	terraform init && \
-	terraform plan -var-file=terraform.tfvars -target=aws_vpc.rosa_vpc -target=aws_subnet.public -target=aws_subnet.private && \
-	terraform apply -var-file=terraform.tfvars -target=aws_vpc.rosa_vpc -target=aws_subnet.public -target=aws_subnet.private -auto-approve
+	terraform plan -var-file=terraform.tfvars -var="cluster_name=$(CLUSTER_NAME)" -var="vpc_name=rosa-$(CLUSTER_NAME)-vpc" && \
+	terraform apply -var-file=terraform.tfvars -var="cluster_name=$(CLUSTER_NAME)" -var="vpc_name=rosa-$(CLUSTER_NAME)-vpc" -auto-approve
 	$(info VPC and subnets deployed for ROSA cluster using Terraform)
 
 .PHONY: rosa-delete-network
@@ -106,8 +108,9 @@ rosa-terraform-init:  ## Initialize Terraform in rosa/terraform directory
 .PHONY: rosa-terraform-plan
 rosa-terraform-plan:  ## Run terraform plan with terraform.tfvars
 	$(call check-tfvars)
+	@echo "Running terraform plan with cluster_name=$(CLUSTER_NAME)..."
 	@cd rosa/terraform && \
-	terraform plan -var-file=terraform.tfvars
+	terraform plan -var-file=terraform.tfvars -var="cluster_name=$(CLUSTER_NAME)" -var="vpc_name=rosa-$(CLUSTER_NAME)-vpc"
 
 .PHONY: rosa-terraform-output
 rosa-terraform-output:  ## Show terraform outputs
