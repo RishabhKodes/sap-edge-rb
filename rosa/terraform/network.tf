@@ -40,6 +40,10 @@ resource "aws_subnet" "public_1" {
     Name                     = "${var.vpc_name}-public-1"
     "kubernetes.io/role/elb" = "1"
   }
+
+  lifecycle {
+    ignore_changes = [tags]
+  }
 }
 
 resource "aws_subnet" "public_2" {
@@ -52,6 +56,10 @@ resource "aws_subnet" "public_2" {
   tags = {
     Name                     = "${var.vpc_name}-public-2"
     "kubernetes.io/role/elb" = "1"
+  }
+
+  lifecycle {
+    ignore_changes = [tags]
   }
 }
 
@@ -66,6 +74,10 @@ resource "aws_subnet" "private_1" {
     Name                              = "${var.vpc_name}-private-1"
     "kubernetes.io/role/internal-elb" = "1"
   }
+
+  lifecycle {
+    ignore_changes = [tags]
+  }
 }
 
 resource "aws_subnet" "private_2" {
@@ -77,6 +89,10 @@ resource "aws_subnet" "private_2" {
   tags = {
     Name                              = "${var.vpc_name}-private-2"
     "kubernetes.io/role/internal-elb" = "1"
+  }
+
+  lifecycle {
+    ignore_changes = [tags]
   }
 }
 
@@ -91,6 +107,10 @@ resource "aws_subnet" "public_3" {
     Name                     = "${var.vpc_name}-public-3"
     "kubernetes.io/role/elb" = "1"
   }
+
+  lifecycle {
+    ignore_changes = [tags]
+  }
 }
 
 resource "aws_subnet" "private_3" {
@@ -102,6 +122,10 @@ resource "aws_subnet" "private_3" {
   tags = {
     Name                              = "${var.vpc_name}-private-3"
     "kubernetes.io/role/internal-elb" = "1"
+  }
+
+  lifecycle {
+    ignore_changes = [tags]
   }
 }
 
