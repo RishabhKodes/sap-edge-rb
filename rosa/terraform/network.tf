@@ -6,6 +6,10 @@ data "aws_availability_zones" "available" {
   state = "available"
 }
 
+locals {
+  vpc_name = var.create_vpc ? "rosa-${var.cluster_name}-vpc" : var.vpc_name
+}
+
 # VPC
 resource "aws_vpc" "main" {
   count                = var.create_vpc ? 1 : 0
@@ -14,7 +18,7 @@ resource "aws_vpc" "main" {
   enable_dns_support   = true
 
   tags = {
-    Name = var.vpc_name
+    Name = local.vpc_name
   }
 }
 
@@ -24,7 +28,7 @@ resource "aws_internet_gateway" "main" {
   vpc_id = aws_vpc.main[0].id
 
   tags = {
-    Name = "${var.vpc_name}-igw"
+    Name = "${local.vpc_name}-igw"
   }
 }
 
@@ -37,7 +41,7 @@ resource "aws_subnet" "public_1" {
   map_public_ip_on_launch = true
 
   tags = {
-    Name                     = "${var.vpc_name}-public-1"
+    Name                     = "${local.vpc_name}-public-1"
     "kubernetes.io/role/elb" = "1"
   }
 
@@ -54,7 +58,7 @@ resource "aws_subnet" "public_2" {
   map_public_ip_on_launch = true
 
   tags = {
-    Name                     = "${var.vpc_name}-public-2"
+    Name                     = "${local.vpc_name}-public-2"
     "kubernetes.io/role/elb" = "1"
   }
 
@@ -71,7 +75,7 @@ resource "aws_subnet" "private_1" {
   availability_zone = data.aws_availability_zones.available.names[0]
 
   tags = {
-    Name                              = "${var.vpc_name}-private-1"
+    Name                              = "${local.vpc_name}-private-1"
     "kubernetes.io/role/internal-elb" = "1"
   }
 
@@ -87,7 +91,7 @@ resource "aws_subnet" "private_2" {
   availability_zone = data.aws_availability_zones.available.names[1]
 
   tags = {
-    Name                              = "${var.vpc_name}-private-2"
+    Name                              = "${local.vpc_name}-private-2"
     "kubernetes.io/role/internal-elb" = "1"
   }
 
@@ -104,7 +108,7 @@ resource "aws_subnet" "public_3" {
   map_public_ip_on_launch = true
 
   tags = {
-    Name                     = "${var.vpc_name}-public-3"
+    Name                     = "${local.vpc_name}-public-3"
     "kubernetes.io/role/elb" = "1"
   }
 
@@ -120,7 +124,7 @@ resource "aws_subnet" "private_3" {
   availability_zone = data.aws_availability_zones.available.names[2]
 
   tags = {
-    Name                              = "${var.vpc_name}-private-3"
+    Name                              = "${local.vpc_name}-private-3"
     "kubernetes.io/role/internal-elb" = "1"
   }
 
@@ -136,7 +140,7 @@ resource "aws_eip" "nat_1" {
   depends_on = [aws_internet_gateway.main]
 
   tags = {
-    Name = "${var.vpc_name}-nat-eip-1"
+    Name = "${local.vpc_name}-nat-eip-1"
   }
 }
 
@@ -146,7 +150,7 @@ resource "aws_eip" "nat_2" {
   depends_on = [aws_internet_gateway.main]
 
   tags = {
-    Name = "${var.vpc_name}-nat-eip-2"
+    Name = "${local.vpc_name}-nat-eip-2"
   }
 }
 
@@ -156,7 +160,7 @@ resource "aws_eip" "nat_3" {
   depends_on = [aws_internet_gateway.main]
 
   tags = {
-    Name = "${var.vpc_name}-nat-eip-3"
+    Name = "${local.vpc_name}-nat-eip-3"
   }
 }
 
@@ -167,7 +171,7 @@ resource "aws_nat_gateway" "nat_1" {
   subnet_id     = aws_subnet.public_1[0].id
 
   tags = {
-    Name = "${var.vpc_name}-nat-1"
+    Name = "${local.vpc_name}-nat-1"
   }
 
   depends_on = [aws_internet_gateway.main]
@@ -179,7 +183,7 @@ resource "aws_nat_gateway" "nat_2" {
   subnet_id     = aws_subnet.public_2[0].id
 
   tags = {
-    Name = "${var.vpc_name}-nat-2"
+    Name = "${local.vpc_name}-nat-2"
   }
 
   depends_on = [aws_internet_gateway.main]
@@ -191,7 +195,7 @@ resource "aws_nat_gateway" "nat_3" {
   subnet_id     = aws_subnet.public_3[0].id
 
   tags = {
-    Name = "${var.vpc_name}-nat-3"
+    Name = "${local.vpc_name}-nat-3"
   }
 
   depends_on = [aws_internet_gateway.main]
@@ -208,7 +212,7 @@ resource "aws_route_table" "public" {
   }
 
   tags = {
-    Name = "${var.vpc_name}-public-rt"
+    Name = "${local.vpc_name}-public-rt"
   }
 }
 
@@ -222,7 +226,7 @@ resource "aws_route_table" "private_1" {
   }
 
   tags = {
-    Name = "${var.vpc_name}-private-rt-1"
+    Name = "${local.vpc_name}-private-rt-1"
   }
 }
 
@@ -236,7 +240,7 @@ resource "aws_route_table" "private_2" {
   }
 
   tags = {
-    Name = "${var.vpc_name}-private-rt-2"
+    Name = "${local.vpc_name}-private-rt-2"
   }
 }
 
@@ -250,7 +254,7 @@ resource "aws_route_table" "private_3" {
   }
 
   tags = {
-    Name = "${var.vpc_name}-private-rt-3"
+    Name = "${local.vpc_name}-private-rt-3"
   }
 }
 
