@@ -1,4 +1,8 @@
 #!/bin/bash
+
+# SPDX-FileCopyrightText: 2025 SAP edge team
+#
+# SPDX-License-Identifier: Apache-2.0
 set -euo pipefail
 
 # Usage: ./force-delete-project.sh <project_name>
