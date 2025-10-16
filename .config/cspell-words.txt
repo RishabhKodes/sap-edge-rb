@@ -101,3 +101,4 @@ Ufpe
 xlarge
 FINALIZER
 finalizers
+bpersistentvolumeclaims
