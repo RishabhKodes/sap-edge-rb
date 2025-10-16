@@ -32,6 +32,22 @@ else
   echo "$ALL_LINES"
 fi
 
+# Handle core kinds mentioned by the namespace controller messages
+if echo "$ALL_LINES" | grep -qE '\bpods\.'; then
+  echo "Force deleting all pods in '$PROJECT'..."
+  oc delete pods -n "$PROJECT" --all --force --grace-period=0 || true
+fi
+
+if echo "$ALL_LINES" | grep -qE '\bpersistentvolumeclaims\.'; then
+  echo "Removing finalizers from PVCs in '$PROJECT'..."
+  oc get pvc -n "$PROJECT" -o name 2>/dev/null | while read -r PVC; do
+    echo "Patching $PVC to remove finalizers..."
+    oc patch "$PVC" -n "$PROJECT" --type json -p '[{"op": "remove", "path": "/metadata/finalizers"}]' || true
+    oc delete "$PVC" -n "$PROJECT" --force --grace-period=0 || true
+  done
+fi
+
+# Clean up custom resources referenced in the status messages (grouped resources)
 RESOURCE_TYPES=$(echo "$ALL_LINES" | grep -oE '([a-zA-Z0-9]+\.)+[a-zA-Z0-9]+' | sort -u)
 
 if [[ -z "$RESOURCE_TYPES" ]]; then
@@ -50,8 +66,24 @@ else
   done
 fi
 
+# As a safety net, sweep all namespaced resource types: remove finalizers and attempt force deletion
+echo "Sweeping all namespaced resource types in '$PROJECT' to remove finalizers and delete..."
+oc api-resources --verbs=list --namespaced -o name | while read -r TYPE; do
+  # Remove finalizers from each instance of this TYPE
+  oc get "$TYPE" -n "$PROJECT" -o name 2>/dev/null | while read -r RES; do
+    echo "Patching $RES to remove finalizers..."
+    oc patch "$RES" -n "$PROJECT" --type json -p '[{"op": "remove", "path": "/metadata/finalizers"}]' 2>/dev/null || true
+  done
+  # Try to force delete any remaining instances
+  oc delete "$TYPE" -n "$PROJECT" --all --force --grace-period=0 2>/dev/null || true
+done
+
 echo "Removing project-level finalizers..."
 oc patch project "$PROJECT" --type json -p '[{"op": "remove", "path": "/metadata/finalizers"}]' || true
+
+# Also attempt to clear namespace finalizers directly
+echo "Removing namespace-level finalizers..."
+oc patch namespace "$PROJECT" --type json -p '[{"op": "remove", "path": "/spec/finalizers"}]' || true
 
 echo "Deleting project '$PROJECT'..."
 oc delete project "$PROJECT" --wait=false || true
