@@ -5,6 +5,12 @@
 # SPDX-License-Identifier: Apache-2.0
 set -euo pipefail
 
+# Reusable JSON patch to remove metadata finalizers
+REMOVE_METADATA_FINALIZERS_PATCH='[{"op": "remove", "path": "/metadata/finalizers"}]'
+
+# Reusable JSON patch to remove spec finalizers (namespaces)
+REMOVE_SPEC_FINALIZERS_PATCH='[{"op": "remove", "path": "/spec/finalizers"}]'
+
 # Usage: ./force-delete-project.sh <project_name>
 PROJECT=${1:-}
 
@@ -14,15 +20,15 @@ if [[ -z "$PROJECT" ]]; then
 fi
 
 if ! oc get project "$PROJECT" &>/dev/null; then
-  echo "Project '$PROJECT' not found."
-  exit 1
+  echo "Project '$PROJECT' not found; nothing to do."
+  exit 0
 fi
 
 echo "Fetching project details for '$PROJECT'..."
-PROJECT_YAML=$(oc get project "$PROJECT" -o yaml)
+PROJECT_JSON=$(oc get project "$PROJECT" -o json)
 
-RESOURCE_LINES=$(echo "$PROJECT_YAML" | grep -A3 "Some resources are remaining:" | sed 's/^.*message: //g' || true)
-FINALIZER_LINES=$(echo "$PROJECT_YAML" | grep -A3 "Some content in the namespace has finalizers remaining:" | sed 's/^.*message: //g' || true)
+RESOURCE_LINES=$(echo "$PROJECT_JSON" | jq -r '.status.conditions[]? | select(.message | test("Some resources are remaining:")) | .message' || true)
+FINALIZER_LINES=$(echo "$PROJECT_JSON" | jq -r '.status.conditions[]? | select(.message | test("Some content in the namespace has finalizers remaining:")) | .message' || true)
 ALL_LINES=$(printf "%s\n%s" "$RESOURCE_LINES" "$FINALIZER_LINES")
 
 if [[ -z "$ALL_LINES" ]]; then
@@ -33,16 +39,14 @@ else
 fi
 
 # Handle core kinds mentioned by the namespace controller messages
-if echo "$ALL_LINES" | grep -qE '\bpods\.'; then
-  echo "Force deleting all pods in '$PROJECT'..."
-  oc delete pods -n "$PROJECT" --all --force --grace-period=0 || true
-fi
+echo "Force deleting all pods in '$PROJECT'..."
+oc delete pods -n "$PROJECT" --all --force --grace-period=0 || true
 
 if echo "$ALL_LINES" | grep -qE '\bpersistentvolumeclaims\.'; then
   echo "Removing finalizers from PVCs in '$PROJECT'..."
   oc get pvc -n "$PROJECT" -o name 2>/dev/null | while read -r PVC; do
     echo "Patching $PVC to remove finalizers..."
-    oc patch "$PVC" -n "$PROJECT" --type json -p '[{"op": "remove", "path": "/metadata/finalizers"}]' || true
+    oc patch "$PVC" -n "$PROJECT" --type json -p "$REMOVE_METADATA_FINALIZERS_PATCH" || true
     oc delete "$PVC" -n "$PROJECT" --force --grace-period=0 || true
   done
 fi
@@ -58,7 +62,7 @@ else
     if oc get "$RESOURCE" -n "$PROJECT" &>/dev/null; then
       oc get "$RESOURCE" -n "$PROJECT" -o name | while read -r RES; do
         echo "Patching $RES to remove finalizers..."
-        oc patch "$RES" -n "$PROJECT" --type json -p '[{"op": "remove", "path": "/metadata/finalizers"}]' || true
+        oc patch "$RES" -n "$PROJECT" --type json -p "$REMOVE_METADATA_FINALIZERS_PATCH" || true
       done
     else
       echo "Resource type $RESOURCE not found; skipping."
@@ -79,11 +83,11 @@ oc api-resources --verbs=list --namespaced -o name | while read -r TYPE; do
 done
 
 echo "Removing project-level finalizers..."
-oc patch project "$PROJECT" --type json -p '[{"op": "remove", "path": "/metadata/finalizers"}]' || true
+oc patch project "$PROJECT" --type json -p "$REMOVE_METADATA_FINALIZERS_PATCH" || true
 
 # Also attempt to clear namespace finalizers directly
 echo "Removing namespace-level finalizers..."
-oc patch namespace "$PROJECT" --type json -p '[{"op": "remove", "path": "/spec/finalizers"}]' || true
+oc patch namespace "$PROJECT" --type json -p "$REMOVE_SPEC_FINALIZERS_PATCH" || true
 
 echo "Deleting project '$PROJECT'..."
 oc delete project "$PROJECT" --wait=false || true
