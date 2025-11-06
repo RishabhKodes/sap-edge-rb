@@ -7,7 +7,7 @@
 apiVersion: tekton.dev/v1
 kind: PipelineRun
 metadata:
-  generateName: endpoint-tests-bruhl-
+  generateName: endpoint-tests-hockenheim-
   annotations:
     pipelinesascode.tekton.dev/on-event: "[pull_request]"   # only PRs
     pipelinesascode.tekton.dev/on-target-branch: "[main]"
@@ -20,15 +20,15 @@ spec:
     - name: revision
       value: "{{ revision }}"
     - name: clusterConfigMapName
-      value: "cluster-info-bruhl"
+      value: "cluster-info-hockenheim"
     - name: eicAuthSecretName
       value: "eic-auth-secret"
     - name: publicDNS
       value: "false"
     - name: jiraSecretName
-      value: "jira-secret-mj"
+      value: "jira-secret-rb"
     - name: jiraIssueKey
-      value: "SAPOCP-1715"
+      value: "SAPOCP-1706"
     - name: extraInfo
       value: "Current EIC version 8.36.8 \n OpenShift version is 4.20 \n further test the EIC."
   workspaces:
