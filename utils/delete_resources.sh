@@ -11,7 +11,7 @@ REMOVE_METADATA_FINALIZERS_PATCH='[{"op": "remove", "path": "/metadata/finalizer
 # Reusable JSON patch to remove spec finalizers (namespaces)
 REMOVE_SPEC_FINALIZERS_PATCH='[{"op": "remove", "path": "/spec/finalizers"}]'
 
-# Usage: ./force-delete-project.sh <project_name>
+# Usage: ./delete_resources.sh <project_name>
 PROJECT=${1:-}
 
 if [[ -z "$PROJECT" ]]; then
@@ -41,35 +41,12 @@ else
   echo "$ALL_LINES"
 fi
 
-# Handle core kinds mentioned by the namespace controller messages
-echo "Force deleting all pods in '$PROJECT'..."
-oc delete pods -n "$PROJECT" --all --force --grace-period=0 || true
-
 if echo "$ALL_LINES" | grep -qE '\bpersistentvolumeclaims\.'; then
   echo "Removing finalizers from PVCs in '$PROJECT'..."
   oc get pvc -n "$PROJECT" -o name 2>/dev/null | while read -r PVC; do
     echo "Patching $PVC to remove finalizers..."
     oc patch "$PVC" -n "$PROJECT" --type json -p "$REMOVE_METADATA_FINALIZERS_PATCH" || true
     oc delete "$PVC" -n "$PROJECT" --force --grace-period=0 || true
-  done
-fi
-
-# Clean up custom resources referenced in the status messages (grouped resources)
-RESOURCE_TYPES=$(echo "$ALL_LINES" | grep -oE '([a-zA-Z0-9]+\.)+[a-zA-Z0-9]+' | sort -u)
-
-if [[ -z "$RESOURCE_TYPES" ]]; then
-  echo "No custom resources to clean up."
-else
-  for RESOURCE in $RESOURCE_TYPES; do
-    echo "Processing resource: $RESOURCE"
-    if oc get "$RESOURCE" -n "$PROJECT" &>/dev/null; then
-      oc get "$RESOURCE" -n "$PROJECT" -o name | while read -r RES; do
-        echo "Patching $RES to remove finalizers..."
-        oc patch "$RES" -n "$PROJECT" --type json -p "$REMOVE_METADATA_FINALIZERS_PATCH" || true
-      done
-    else
-      echo "Resource type $RESOURCE not found; skipping."
-    fi
   done
 fi
 
@@ -81,15 +58,6 @@ oc api-resources --verbs=list --namespaced -o name | while read -r TYPE; do
     echo "Patching $RES to remove finalizers..."
     oc patch "$RES" -n "$PROJECT" --type json -p '[{"op": "remove", "path": "/metadata/finalizers"}]' 2>/dev/null || true
   done
-  # Try to force delete any remaining instances
-  oc delete "$TYPE" -n "$PROJECT" --all --force --grace-period=0 2>/dev/null || true
 done
-
-echo "Removing project-level finalizers..."
-oc patch project "$PROJECT" --type json -p "$REMOVE_METADATA_FINALIZERS_PATCH" || true
-
-# Also attempt to clear namespace finalizers directly
-echo "Removing namespace-level finalizers..."
-oc patch namespace "$PROJECT" --type json -p "$REMOVE_SPEC_FINALIZERS_PATCH" || true
 
 echo "Cleanup initiated for project: $PROJECT"
