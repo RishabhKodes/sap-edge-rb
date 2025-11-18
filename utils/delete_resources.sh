@@ -24,6 +24,9 @@ if ! oc get project "$PROJECT" &>/dev/null; then
   exit 0
 fi
 
+echo "Initiating deletion of project '$PROJECT'..."
+oc delete project "$PROJECT" --wait=false || true
+
 echo "Fetching project details for '$PROJECT'..."
 PROJECT_JSON=$(oc get project "$PROJECT" -o json)
 
@@ -88,8 +91,5 @@ oc patch project "$PROJECT" --type json -p "$REMOVE_METADATA_FINALIZERS_PATCH" |
 # Also attempt to clear namespace finalizers directly
 echo "Removing namespace-level finalizers..."
 oc patch namespace "$PROJECT" --type json -p "$REMOVE_SPEC_FINALIZERS_PATCH" || true
-
-echo "Deleting project '$PROJECT'..."
-oc delete project "$PROJECT" --wait=false || true
 
 echo "Cleanup initiated for project: $PROJECT"
