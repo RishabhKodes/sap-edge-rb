@@ -8,9 +8,6 @@ set -euo pipefail
 # Reusable JSON patch to remove metadata finalizers
 REMOVE_METADATA_FINALIZERS_PATCH='[{"op": "remove", "path": "/metadata/finalizers"}]'
 
-# Reusable JSON patch to remove spec finalizers (namespaces)
-REMOVE_SPEC_FINALIZERS_PATCH='[{"op": "remove", "path": "/spec/finalizers"}]'
-
 # Usage: ./delete_resources.sh <project_name>
 PROJECT=${1:-}
 
