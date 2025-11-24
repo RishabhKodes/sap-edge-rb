@@ -25,13 +25,23 @@ if ! oc get project "$PROJECT" &>/dev/null; then
 fi
 
 echo "Initiating deletion of project '$PROJECT'..."
-oc delete project "$PROJECT" --wait=false || true
+if ! oc delete project "$PROJECT" --wait=false; then
+  echo "Warning: Failed to initiate deletion of project '$PROJECT'. It might already be deleting."
+fi
 
 echo "Fetching project details for '$PROJECT'..."
 PROJECT_JSON=$(oc get project "$PROJECT" -o json)
 
-RESOURCE_LINES=$(echo "$PROJECT_JSON" | jq -r '.status.conditions[]? | select(.message | test("Some resources are remaining:")) | .message' || true)
-FINALIZER_LINES=$(echo "$PROJECT_JSON" | jq -r '.status.conditions[]? | select(.message | test("Some content in the namespace has finalizers remaining:")) | .message' || true)
+if ! RESOURCE_LINES=$(echo "$PROJECT_JSON" | jq -r '.status.conditions[]? | select(.message | test("Some resources are remaining:")) | .message'); then
+  echo "Warning: Failed to parse resource messages from project status."
+  RESOURCE_LINES=""
+fi
+
+if ! FINALIZER_LINES=$(echo "$PROJECT_JSON" | jq -r '.status.conditions[]? | select(.message | test("Some content in the namespace has finalizers remaining:")) | .message'); then
+  echo "Warning: Failed to parse finalizer messages from project status."
+  FINALIZER_LINES=""
+fi
+
 ALL_LINES=$(printf "%s\n%s" "$RESOURCE_LINES" "$FINALIZER_LINES")
 
 if [[ -z "$ALL_LINES" ]]; then
@@ -43,10 +53,16 @@ fi
 
 if echo "$ALL_LINES" | grep -qE '\bpersistentvolumeclaims\.'; then
   echo "Removing finalizers from PVCs in '$PROJECT'..."
+  # Use process substitution or just simple pipe.
+  # Note: pipe creates a subshell, so variables set inside wouldn't persist, but we are just running commands.
   oc get pvc -n "$PROJECT" -o name 2>/dev/null | while read -r PVC; do
     echo "Patching $PVC to remove finalizers..."
-    oc patch "$PVC" -n "$PROJECT" --type json -p "$REMOVE_METADATA_FINALIZERS_PATCH" || true
-    oc delete "$PVC" -n "$PROJECT" --force --grace-period=0 || true
+    if ! oc patch "$PVC" -n "$PROJECT" --type json -p "$REMOVE_METADATA_FINALIZERS_PATCH"; then
+      echo "Warning: Failed to patch $PVC"
+    fi
+    if ! oc delete "$PVC" -n "$PROJECT" --force --grace-period=0; then
+      echo "Warning: Failed to delete $PVC"
+    fi
   done
 fi
 
@@ -56,7 +72,9 @@ oc api-resources --verbs=list --namespaced -o name | while read -r TYPE; do
   # Remove finalizers from each instance of this TYPE
   oc get "$TYPE" -n "$PROJECT" -o name 2>/dev/null | while read -r RES; do
     echo "Patching $RES to remove finalizers..."
-    oc patch "$RES" -n "$PROJECT" --type json -p '[{"op": "remove", "path": "/metadata/finalizers"}]' 2>/dev/null || true
+    if ! oc patch "$RES" -n "$PROJECT" --type json -p '[{"op": "remove", "path": "/metadata/finalizers"}]' 2>/dev/null; then
+       echo "Warning: Failed to patch $RES to remove finalizers"
+    fi
   done
 done
 
