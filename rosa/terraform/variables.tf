@@ -31,7 +31,7 @@ variable "cluster_name" {
 variable "rosa_version" {
   type        = string
   description = "ROSA openshift version"
-  default     = "4.14.9"
+  default     = "4.20.12"
 }
 
 variable "compute_machine_type" {

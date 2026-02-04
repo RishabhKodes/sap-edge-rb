@@ -49,11 +49,11 @@ spec:
     - name: deployPostgres
       type: string
       description: "Whether to deploy RDS PostgreSQL (true/false)"
-      default: "true"
+      default: "false"
     - name: deployRedis
       type: string
       description: "Whether to deploy ElastiCache Redis (true/false)"
-      default: "true"
+      default: "false"
     - name: deployQuay
       type: string
       description: "Whether to deploy S3 for Quay (true/false)"

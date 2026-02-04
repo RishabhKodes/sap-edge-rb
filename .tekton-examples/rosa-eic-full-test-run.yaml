@@ -29,7 +29,7 @@ spec:
     - name: awsRegion
       value: "us-east-1"
     - name: rosaVersion
-      value: "4.17.0"
+      value: "4.20.12"
     - name: awsSecretName
       value: "aws-credentials-secret"
     - name: redhatTokenSecretName
@@ -41,9 +41,9 @@ spec:
     - name: quayAdminPasswordSecretName
       value: "quay-admin-secret"
     - name: deployPostgres
-      value: "true"
+      value: "false"
     - name: deployRedis
-      value: "true"
+      value: "false"
     - name: deployQuay
       value: "true"
     - name: publicDNS

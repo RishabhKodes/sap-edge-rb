@@ -12,11 +12,13 @@ param pullSecret string
 param domain string
 @description('OpenShift version for the ARO cluster')
 @allowed([
-    '4.14.38'
-    '4.15.35'
+    '4.16.30'
     '4.16.39'
+    '4.16.48'
     '4.17.27'
-    '4.18.9'
+    '4.17.44'
+    '4.18.26'
+    '4.19.20'
 ])
 param version string
 

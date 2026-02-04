@@ -27,9 +27,9 @@ spec:
     - name: aroLocation
       value: "northeurope"
     - name: aroClusterName
-      value: "sapeic"
+      value: "sap-eic-validation"
     - name: aroVersion
-      value: "4.17.27"
+      value: "4.19.20"
     - name: azureSecretName
       value: "azure-sp-secret"
     - name: pullSecretName
@@ -38,20 +38,20 @@ spec:
       value: "eic-auth-secret"
     - name: postgresAdminPasswordSecretName
       value: "azure-postgres-admin-password"
-    - name: quayAdminPasswordSecretName
-      value: "quay-admin-secret"
     - name: deployPostgres
-      value: "true"
+      value: "false"
     - name: deployRedis
-      value: "true"
-    - name: deployQuay
-      value: "true"
+      value: "false"
     - name: publicDNS
       value: "false"
+    - name: deployQuay
+      value: "true"
+    - name: quayAdminPasswordSecretName
+      value: "quay-admin-secret"
     - name: jiraSecretName
       value: "jira-secret-mj"
     - name: jiraIssueKey
-      value: "SAPOCP-1590"
+      value: "SAPOCP-1708"
   workspaces:
     - name: source
       volumeClaimTemplate:
@@ -60,4 +60,4 @@ spec:
           storageClassName: ocs-storagecluster-cephfs
           resources:
             requests:
-              storage: 10Mi
+              storage: 2Gi
