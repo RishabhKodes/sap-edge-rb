@@ -638,7 +638,40 @@ aro-cost-estimate:  ## Get cost estimate for test deployment
 
 # Azure Storage for Quay Registry
 .PHONY: aro-quay-storage-create
-aro-quay-storage-create:  ## Get Azure storage credentials for Quay (storage created by Bicep)
+aro-quay-storage-create:  ## Create Azure storage for Quay (for existing clusters without Bicep-created storage)
+	$(call required-environment-variables,ARO_RESOURCE_GROUP ARO_CLUSTER_NAME)
+	@echo "🔍 Checking for existing Quay storage..."
+	@EXISTING=$$(az storage account list --resource-group "${ARO_RESOURCE_GROUP}" \
+		--query "[?tags.service=='quay'].name" -o tsv); \
+	if [ -n "$$EXISTING" ]; then \
+		echo "✅ Quay storage already exists: $$EXISTING"; \
+		exit 0; \
+	fi; \
+	echo "📦 Creating Azure storage account for Quay..."; \
+	STORAGE_NAME=$$(echo "quay$${ARO_CLUSTER_NAME}$$(date +%s)" | tr -d '-' | head -c 24); \
+	az storage account create \
+		--name "$$STORAGE_NAME" \
+		--resource-group "${ARO_RESOURCE_GROUP}" \
+		--location "$${ARO_LOCATION:-northeurope}" \
+		--sku Standard_LRS \
+		--kind StorageV2 \
+		--access-tier Hot \
+		--allow-blob-public-access false \
+		--min-tls-version TLS1_2 \
+		--https-only true \
+		--tags service=quay clusterName=${ARO_CLUSTER_NAME} purpose=testing team=sap-edge; \
+	echo "📦 Creating blob container..."; \
+	az storage container create \
+		--name quay-registry \
+		--account-name "$$STORAGE_NAME" \
+		--auth-mode login; \
+	echo "✅ Quay storage created: $$STORAGE_NAME"; \
+	echo ""; \
+	echo "🔑 To get storage key:"; \
+	echo "   az storage account keys list --account-name $$STORAGE_NAME --resource-group ${ARO_RESOURCE_GROUP} --query '[0].value' -o tsv"
+
+.PHONY: aro-quay-storage-get
+aro-quay-storage-get:  ## Get Azure storage credentials for Quay (storage created by Bicep or standalone)
 	$(call required-environment-variables,ARO_RESOURCE_GROUP)
 	@echo "💡 Note: Storage is created by Bicep deployment (make aro-deploy-test)"
 	@echo "   This command retrieves the credentials from Bicep outputs"

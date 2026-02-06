@@ -142,11 +142,33 @@ spec:
             --resource-group "${ARO_RESOURCE_GROUP}" \
             --query "[?tags.service=='quay'].name | [0]" \
             -o tsv)
-        
+
         if [ -z "${AZURE_STORAGE_ACCOUNT_NAME}" ] || [ "${AZURE_STORAGE_ACCOUNT_NAME}" == "null" ]; then
-          echo "❌ No storage account with tag 'service=quay' found in resource group '${ARO_RESOURCE_GROUP}'"
-          echo "💡 Storage should be created by Bicep during ARO deployment with deployQuay=true"
-          exit 1
+          echo "⚠️  No storage account with tag 'service=quay' found"
+          echo "📦 Creating Azure storage account for Quay..."
+
+          # Generate unique storage name (max 24 chars, lowercase alphanumeric)
+          AZURE_STORAGE_ACCOUNT_NAME=$(echo "quay${ARO_CLUSTER_NAME}$(date +%s)" | tr -d '-' | tr '[:upper:]' '[:lower:]' | head -c 24)
+
+          az storage account create \
+            --name "${AZURE_STORAGE_ACCOUNT_NAME}" \
+            --resource-group "${ARO_RESOURCE_GROUP}" \
+            --location "${ARO_LOCATION:-northeurope}" \
+            --sku Standard_LRS \
+            --kind StorageV2 \
+            --access-tier Hot \
+            --allow-blob-public-access false \
+            --min-tls-version TLS1_2 \
+            --https-only true \
+            --tags service=quay clusterName="${ARO_CLUSTER_NAME}" purpose=testing team=sap-edge
+
+          echo "📦 Creating blob container..."
+          az storage container create \
+            --name quay-registry \
+            --account-name "${AZURE_STORAGE_ACCOUNT_NAME}" \
+            --auth-mode login
+
+          echo "✅ Quay storage created: ${AZURE_STORAGE_ACCOUNT_NAME}"
         fi
         
         echo "✅ Found Quay storage account: ${AZURE_STORAGE_ACCOUNT_NAME}"
