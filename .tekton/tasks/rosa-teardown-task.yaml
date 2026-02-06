@@ -217,21 +217,137 @@ spec:
           echo "⚠️  ROSA cluster destruction had issues, continuing..."
         fi
 
-        # Stage 2: Wait for AWS to clean up ROSA-created resources (security groups, ENIs)
+        # Stage 2: Actively clean up ROSA-created VPC resources (security groups, ENIs)
+        # ROSA creates these outside of Terraform, so they block VPC deletion.
         echo ""
-        echo "⏳ Stage 2: Waiting 5 minutes for AWS to clean up ROSA-created resources..."
-        echo "   (Security groups and network interfaces created by ROSA are deleted asynchronously)"
-        sleep 300
+        echo "🧹 Stage 2: Cleaning up ROSA-created resources in VPC..."
 
-        # Stage 3: Destroy remaining infrastructure (VPC, S3, etc.)
+        # Get VPC ID from Terraform state
+        VPC_ID=$(terraform state show 'module.vpc[0].aws_vpc.this[0]' 2>/dev/null \
+          | grep '^\s*id\s' | head -1 | awk '{print $NF}' | tr -d '"') || true
+
+        if [[ -n "${VPC_ID}" ]]; then
+          echo "   VPC: ${VPC_ID}"
+
+          # Brief wait for initial async cleanup
+          echo "   Waiting 60 seconds for initial AWS cleanup..."
+          sleep 60
+
+          # Delete ENIs (network interfaces) created by ROSA
+          echo "   Deleting network interfaces..."
+          ENI_IDS=$(aws ec2 describe-network-interfaces \
+            --region "${AWS_REGION}" \
+            --filters "Name=vpc-id,Values=${VPC_ID}" \
+            --query "NetworkInterfaces[].NetworkInterfaceId" \
+            --output text 2>/dev/null) || true
+
+          for ENI_ID in ${ENI_IDS}; do
+            echo "     Detaching/deleting ENI: ${ENI_ID}"
+            ATTACHMENT_ID=$(aws ec2 describe-network-interfaces \
+              --region "${AWS_REGION}" \
+              --network-interface-ids "${ENI_ID}" \
+              --query "NetworkInterfaces[0].Attachment.AttachmentId" \
+              --output text 2>/dev/null) || true
+            if [[ -n "${ATTACHMENT_ID}" && "${ATTACHMENT_ID}" != "None" ]]; then
+              aws ec2 detach-network-interface --region "${AWS_REGION}" \
+                --attachment-id "${ATTACHMENT_ID}" --force 2>/dev/null || true
+              sleep 5
+            fi
+            aws ec2 delete-network-interface --region "${AWS_REGION}" \
+              --network-interface-id "${ENI_ID}" 2>/dev/null || true
+          done
+
+          # Delete non-default security groups in the VPC
+          echo "   Deleting security groups..."
+          SG_IDS=$(aws ec2 describe-security-groups \
+            --region "${AWS_REGION}" \
+            --filters "Name=vpc-id,Values=${VPC_ID}" \
+            --query "SecurityGroups[?GroupName!='default'].GroupId" \
+            --output text 2>/dev/null) || true
+
+          # First pass: remove all ingress/egress rules (clears cross-SG references)
+          for SG_ID in ${SG_IDS}; do
+            INGRESS_RULES=$(aws ec2 describe-security-group-rules \
+              --region "${AWS_REGION}" \
+              --filters "Name=group-id,Values=${SG_ID}" \
+              --query "SecurityGroupRules[?!IsEgress].SecurityGroupRuleId" \
+              --output text 2>/dev/null) || true
+            if [[ -n "${INGRESS_RULES}" && "${INGRESS_RULES}" != "None" ]]; then
+              aws ec2 revoke-security-group-ingress --region "${AWS_REGION}" \
+                --group-id "${SG_ID}" --security-group-rule-ids ${INGRESS_RULES} 2>/dev/null || true
+            fi
+            EGRESS_RULES=$(aws ec2 describe-security-group-rules \
+              --region "${AWS_REGION}" \
+              --filters "Name=group-id,Values=${SG_ID}" \
+              --query "SecurityGroupRules[?IsEgress].SecurityGroupRuleId" \
+              --output text 2>/dev/null) || true
+            if [[ -n "${EGRESS_RULES}" && "${EGRESS_RULES}" != "None" ]]; then
+              aws ec2 revoke-security-group-egress --region "${AWS_REGION}" \
+                --group-id "${SG_ID}" --security-group-rule-ids ${EGRESS_RULES} 2>/dev/null || true
+            fi
+          done
+          # Second pass: delete the security groups
+          for SG_ID in ${SG_IDS}; do
+            echo "     Deleting security group: ${SG_ID}"
+            aws ec2 delete-security-group --region "${AWS_REGION}" \
+              --group-id "${SG_ID}" 2>/dev/null || true
+          done
+
+          # Delete any remaining load balancers in the VPC
+          echo "   Checking for load balancers..."
+          LB_ARNS=$(aws elbv2 describe-load-balancers \
+            --region "${AWS_REGION}" \
+            --query "LoadBalancers[?VpcId=='${VPC_ID}'].LoadBalancerArn" \
+            --output text 2>/dev/null) || true
+          for LB_ARN in ${LB_ARNS}; do
+            echo "     Deleting load balancer: ${LB_ARN}"
+            aws elbv2 delete-load-balancer --region "${AWS_REGION}" \
+              --load-balancer-arn "${LB_ARN}" 2>/dev/null || true
+          done
+          # Also check classic LBs
+          CLB_NAMES=$(aws elb describe-load-balancers \
+            --region "${AWS_REGION}" \
+            --query "LoadBalancerDescriptions[?VPCId=='${VPC_ID}'].LoadBalancerName" \
+            --output text 2>/dev/null) || true
+          for CLB_NAME in ${CLB_NAMES}; do
+            echo "     Deleting classic LB: ${CLB_NAME}"
+            aws elb delete-load-balancer --region "${AWS_REGION}" \
+              --load-balancer-name "${CLB_NAME}" 2>/dev/null || true
+          done
+
+          if [[ -n "${LB_ARNS}" || -n "${CLB_NAMES}" ]]; then
+            echo "   Waiting 30 seconds for LB cleanup..."
+            sleep 30
+          fi
+
+          echo "   ✅ VPC resource cleanup done"
+        else
+          echo "   ⚠️  Could not determine VPC ID, waiting 5 minutes instead..."
+          sleep 300
+        fi
+
+        # Stage 3: Destroy remaining infrastructure (VPC, S3, etc.) with retries
         echo ""
         echo "🔄 Stage 3: Destroying remaining infrastructure..."
-        if terraform destroy -auto-approve -var="redhat_ocm_token=${REDHAT_OCM_TOKEN}"; then
-          echo "✅ Terraform destroy completed successfully"
-          echo "✅ All resources cleaned up!"
-        else
-          echo "❌ Terraform destroy encountered errors"
-          echo "⚠️  Some resources may still exist"
+        DESTROY_SUCCESS=false
+        for ATTEMPT in 1 2 3; do
+          echo "   Attempt ${ATTEMPT}/3..."
+          if terraform destroy -auto-approve -var="redhat_ocm_token=${REDHAT_OCM_TOKEN}"; then
+            echo "✅ Terraform destroy completed successfully"
+            echo "✅ All resources cleaned up!"
+            DESTROY_SUCCESS=true
+            break
+          else
+            echo "   ⚠️  Attempt ${ATTEMPT} failed"
+            if [[ ${ATTEMPT} -lt 3 ]]; then
+              echo "   Waiting 60 seconds before retry..."
+              sleep 60
+            fi
+          fi
+        done
+
+        if [[ "${DESTROY_SUCCESS}" != "true" ]]; then
+          echo "❌ Terraform destroy failed after 3 attempts"
           echo ""
           echo "📋 Remaining resources:"
           terraform state list || echo "Unable to list state"
