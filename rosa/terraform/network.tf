@@ -24,9 +24,4 @@ module "vpc" {
   enable_dns_hostnames = true
   enable_dns_support   = true
   tags                 = var.tags
-
-  # Ensure VPC is not destroyed until after ROSA cleanup completes.
-  # The time_sleep resource waits for AWS to clean up ROSA-created resources
-  # (security groups, ENIs) before allowing VPC deletion.
-  depends_on = [time_sleep.wait_for_rosa_cleanup]
 }

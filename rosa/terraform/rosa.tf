@@ -29,12 +29,3 @@ module "rosa-hcp" {
   create_operator_roles = var.create_operator_roles
   operator_role_prefix  = var.operator_role_prefix != "" ? var.operator_role_prefix : var.cluster_name
 }
-
-# Wait for AWS to complete async cleanup of ROSA-created resources (security groups, ENIs)
-# before allowing VPC destruction. ROSA creates resources in the VPC that are not managed
-# by Terraform, and AWS needs time to clean them up after the cluster is deleted.
-resource "time_sleep" "wait_for_rosa_cleanup" {
-  destroy_duration = "5m"
-
-  depends_on = [module.rosa-hcp]
-}

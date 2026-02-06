@@ -41,7 +41,7 @@ spec:
     - name: jiraIssueKey
       value: "SAPOCP-1659"
     - name: skipEdgelmValidation
-      value: "false"
+      value: "true"
   workspaces:
     - name: source
       volumeClaimTemplate:

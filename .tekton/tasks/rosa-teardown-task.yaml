@@ -194,9 +194,11 @@ spec:
         echo "🔍 Planning destruction..."
         terraform plan -destroy -var="redhat_ocm_token=${REDHAT_OCM_TOKEN}" || true
         
-        # Destroy infrastructure
+        # Staged destroy to avoid VPC dependency issues
+        # ROSA creates security groups and ENIs in the VPC that are cleaned up asynchronously.
+        # We destroy ROSA first, wait for AWS cleanup, then destroy the rest.
         echo ""
-        echo "🗑️ Destroying ALL Terraform-managed resources..."
+        echo "🗑️ Destroying Terraform-managed resources (staged approach)..."
         echo "⚠️  This will delete:"
         echo "  - ROSA cluster and all workloads"
         echo "  - PostgreSQL RDS database"
@@ -206,7 +208,24 @@ spec:
         echo "  - VPC and networking"
         echo "  - Security groups"
         echo ""
-        
+
+        # Stage 1: Destroy ROSA cluster first
+        echo "🔄 Stage 1: Destroying ROSA cluster..."
+        if terraform destroy -auto-approve -var="redhat_ocm_token=${REDHAT_OCM_TOKEN}" -target=module.rosa-hcp; then
+          echo "✅ ROSA cluster destroyed"
+        else
+          echo "⚠️  ROSA cluster destruction had issues, continuing..."
+        fi
+
+        # Stage 2: Wait for AWS to clean up ROSA-created resources (security groups, ENIs)
+        echo ""
+        echo "⏳ Stage 2: Waiting 5 minutes for AWS to clean up ROSA-created resources..."
+        echo "   (Security groups and network interfaces created by ROSA are deleted asynchronously)"
+        sleep 300
+
+        # Stage 3: Destroy remaining infrastructure (VPC, S3, etc.)
+        echo ""
+        echo "🔄 Stage 3: Destroying remaining infrastructure..."
         if terraform destroy -auto-approve -var="redhat_ocm_token=${REDHAT_OCM_TOKEN}"; then
           echo "✅ Terraform destroy completed successfully"
           echo "✅ All resources cleaned up!"
