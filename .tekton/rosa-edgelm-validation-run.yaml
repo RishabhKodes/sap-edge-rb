@@ -25,7 +25,7 @@ spec:
     - name: revision
       value: "{{ revision }}"
     - name: clusterName
-      value: "rosa-edgelm"
+      value: "rosa-edgelm-rb"
     - name: awsRegion
       value: "eu-north-1"
     - name: rosaVersion
