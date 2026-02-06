@@ -31,7 +31,7 @@ spec:
     - name: rosaVersion
       value: "4.20.12"
     - name: awsSecretName
-      value: "aws-credentials-secret"
+      value: "aws-credentials-secret-rb"
     - name: redhatTokenSecretName
       value: "redhat-token-secret"
     - name: quayAdminPasswordSecretName
