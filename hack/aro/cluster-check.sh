@@ -69,34 +69,33 @@ validate_requirements() {
 
 check_cluster() {
     local status_only="${STATUS_ONLY:-false}"
-    
+
     # Try to get cluster status
     local cluster_status
     if cluster_status=$(az aro show --name "${ARO_CLUSTER_NAME}" --resource-group "${ARO_RESOURCE_GROUP}" --query "provisioningState" -o tsv 2>/dev/null); then
-        # Cluster exists, check its state
+        # Cluster exists - for --status-only, return "true" for ANY existing cluster
+        # This ensures teardown waits until cluster is fully deleted (az aro show fails)
+        if [[ "${status_only}" == "true" ]]; then
+            echo "true"
+            exit 0
+        fi
+
+        # Detailed output for non-status-only mode
         case "${cluster_status}" in
             "Succeeded")
-                if [[ "${status_only}" == "true" ]]; then
-                    echo "true"
-                else
-                    echo "✅ Cluster '${ARO_CLUSTER_NAME}' exists and is ready (status: ${cluster_status})"
-                fi
+                echo "✅ Cluster '${ARO_CLUSTER_NAME}' exists and is ready (status: ${cluster_status})"
                 exit 0
                 ;;
+            "Deleting")
+                echo "🗑️ Cluster '${ARO_CLUSTER_NAME}' is being deleted (status: ${cluster_status})" >&2
+                exit 2
+                ;;
             "Failed")
-                if [[ "${status_only}" == "true" ]]; then
-                    echo "false"
-                else
-                    echo "❌ Cluster '${ARO_CLUSTER_NAME}' exists but is in failed state: ${cluster_status}" >&2
-                fi
+                echo "❌ Cluster '${ARO_CLUSTER_NAME}' exists but is in failed state: ${cluster_status}" >&2
                 exit 2
                 ;;
             *)
-                if [[ "${status_only}" == "true" ]]; then
-                    echo "false"
-                else
-                    echo "⏳ Cluster '${ARO_CLUSTER_NAME}' exists but is not ready (status: ${cluster_status})" >&2
-                fi
+                echo "⏳ Cluster '${ARO_CLUSTER_NAME}' exists but is not ready (status: ${cluster_status})" >&2
                 exit 2
                 ;;
         esac

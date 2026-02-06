@@ -363,15 +363,61 @@ redis-delete:  ## Delete Redis cache instances
 .PHONY: aro-resources-cleanup
 aro-resources-cleanup:  ## Clean up other ARO-related resources
 	$(call required-environment-variables,ARO_RESOURCE_GROUP ARO_CLUSTER_NAME)
-	@ARO_RESOURCES=$$(az resource list --resource-group "${ARO_RESOURCE_GROUP}" --query "[?contains(name, '${ARO_CLUSTER_NAME}') || (tags && tags.cluster && contains(tags.cluster, '${ARO_CLUSTER_NAME}'))].id" -o tsv); \
+	@echo "🧹 Cleaning up ARO-related resources (excluding ARO cluster itself)..."
+	@# Step 1: Delete virtual network links first (required before deleting Private DNS Zones)
+	@echo "🔗 Step 1: Deleting virtual network links..."
+	@VNET_LINKS=$$(az resource list --resource-group "${ARO_RESOURCE_GROUP}" \
+		--query "[?type=='Microsoft.Network/privateDnsZones/virtualNetworkLinks' && contains(name, '${ARO_CLUSTER_NAME}')].id" -o tsv); \
+	if [[ -n "$$VNET_LINKS" ]]; then \
+		echo "Found virtual network links to delete:"; \
+		echo "$$VNET_LINKS"; \
+		for link in $$VNET_LINKS; do \
+			echo "Deleting: $$link"; \
+			az resource delete --ids "$$link" 2>/dev/null || true; \
+		done; \
+	else \
+		echo "ℹ️ No virtual network links found"; \
+	fi
+	@# Step 2: Delete private endpoints
+	@echo "🔌 Step 2: Deleting private endpoints..."
+	@PRIVATE_ENDPOINTS=$$(az resource list --resource-group "${ARO_RESOURCE_GROUP}" \
+		--query "[?type=='Microsoft.Network/privateEndpoints' && contains(name, '${ARO_CLUSTER_NAME}')].id" -o tsv); \
+	if [[ -n "$$PRIVATE_ENDPOINTS" ]]; then \
+		echo "Found private endpoints to delete:"; \
+		echo "$$PRIVATE_ENDPOINTS"; \
+		for pe in $$PRIVATE_ENDPOINTS; do \
+			echo "Deleting: $$pe"; \
+			az resource delete --ids "$$pe" 2>/dev/null || true; \
+		done; \
+	else \
+		echo "ℹ️ No private endpoints found"; \
+	fi
+	@# Step 3: Delete private DNS zones
+	@echo "🌐 Step 3: Deleting private DNS zones..."
+	@DNS_ZONES=$$(az resource list --resource-group "${ARO_RESOURCE_GROUP}" \
+		--query "[?type=='Microsoft.Network/privateDnsZones' && contains(name, '${ARO_CLUSTER_NAME}')].id" -o tsv); \
+	if [[ -n "$$DNS_ZONES" ]]; then \
+		echo "Found private DNS zones to delete:"; \
+		echo "$$DNS_ZONES"; \
+		for zone in $$DNS_ZONES; do \
+			echo "Deleting: $$zone"; \
+			az resource delete --ids "$$zone" 2>/dev/null || true; \
+		done; \
+	else \
+		echo "ℹ️ No private DNS zones found"; \
+	fi
+	@# Step 4: Delete remaining resources (excluding ARO cluster which is handled separately)
+	@echo "🗑️ Step 4: Deleting remaining resources..."
+	@ARO_RESOURCES=$$(az resource list --resource-group "${ARO_RESOURCE_GROUP}" \
+		--query "[?(contains(name, '${ARO_CLUSTER_NAME}') || (tags && tags.cluster && contains(tags.cluster, '${ARO_CLUSTER_NAME}'))) && type!='Microsoft.RedHatOpenShift/OpenShiftClusters'].id" -o tsv); \
 	if [[ -n "$$ARO_RESOURCES" ]]; then \
 		echo "Found other ARO-related resources to delete:"; \
 		echo "$$ARO_RESOURCES"; \
-		az resource delete --resource-group "${ARO_RESOURCE_GROUP}" --ids $$ARO_RESOURCES || echo "Some ARO resources may have already been deleted"; \
-		echo "✅ ARO resources cleanup completed"; \
+		az resource delete --resource-group "${ARO_RESOURCE_GROUP}" --ids $$ARO_RESOURCES 2>/dev/null || echo "Some ARO resources may have already been deleted"; \
 	else \
 		echo "ℹ️ No other ARO-related resources found"; \
 	fi
+	@echo "✅ ARO resources cleanup completed"
 
 .PHONY: aro-resource-group-create
 aro-resource-group-create:  ## Create resource group (idempotent)
