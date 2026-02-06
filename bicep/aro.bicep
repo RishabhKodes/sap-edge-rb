@@ -59,6 +59,9 @@ param deployPostgres bool = true
 @description('Whether to deploy Azure Cache for Redis')
 param deployRedis bool = true
 
+@description('Whether to deploy Azure Storage for Quay Registry')
+param deployQuay bool = true
+
 @description('PostgreSQL admin password')
 @secure()
 param postgresAdminPassword string = ''
@@ -169,7 +172,7 @@ resource redisSubnet 'Microsoft.Network/virtualNetworks/subnets@2024-01-01' exis
 }
 
 // Deploy Azure services using the azure-services.bicep module
-module azureServices 'azure-services.bicep' = if (deployPostgres || deployRedis) {
+module azureServices 'azure-services.bicep' = if (deployPostgres || deployRedis || deployQuay) {
   name: 'azure-services-deployment'
   params: {
     clusterName: clusterName
@@ -179,6 +182,7 @@ module azureServices 'azure-services.bicep' = if (deployPostgres || deployRedis)
     redisSubnetId: redisSubnet.id
     deployPostgres: deployPostgres
     deployRedis: deployRedis
+    deployQuay: deployQuay
     postgresAdminPassword: postgresAdminPassword
   }
 }
@@ -193,6 +197,9 @@ output redisCacheName string = deployRedis ? azureServices!.outputs.redisCacheNa
 output redisHostName string = deployRedis ? azureServices!.outputs.redisHostName : ''
 output redisPort int = deployRedis ? azureServices!.outputs.redisPort : 0
 output redisSslPort int = deployRedis ? azureServices!.outputs.redisSslPort : 0
+
+output quayStorageAccountName string = deployQuay ? azureServices!.outputs.quayStorageAccountName : ''
+output quayContainerName string = deployQuay ? azureServices!.outputs.quayContainerName : ''
 
 // Connection strings
 output postgresConnectionString string = deployPostgres ? azureServices!.outputs.postgresConnectionString : ''

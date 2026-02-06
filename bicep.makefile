@@ -567,7 +567,7 @@ aro-deploy-test:  ## Deploy ARO with cost-optimized test settings
 		--template-file bicep/aro.bicep \
 		--parameters @bicep/test.parameters.json \
 		--parameters @$$TEMP_PARAMS \
-		--parameters deployPostgres=$${DEPLOY_POSTGRES:-false} deployRedis=$${DEPLOY_REDIS:-false}; \
+		--parameters deployPostgres=$${DEPLOY_POSTGRES:-false} deployRedis=$${DEPLOY_REDIS:-false} deployQuay=$${DEPLOY_QUAY:-false}; \
 	rm -f $$TEMP_PARAMS
 
 .PHONY: aro-services-deploy-test
