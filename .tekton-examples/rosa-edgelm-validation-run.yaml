@@ -25,23 +25,23 @@ spec:
     - name: revision
       value: "{{ revision }}"
     - name: clusterName
-      value: "rosa-edgelm"
+      value: "rosa-edgelm-elm"
     - name: awsRegion
       value: "eu-north-1"
     - name: rosaVersion
-      value: "4.20.12"
+      value: "4.21.0"
     - name: awsSecretName
-      value: "aws-credentials-secret"
+      value: "aws-credentials-secret-rb"
     - name: redhatTokenSecretName
       value: "redhat-token-secret"
     - name: quayAdminPasswordSecretName
       value: "quay-admin-secret"
     - name: jiraSecretName
-      value: "jira-secret-mj"
+      value: "jira-secret-rb"
     - name: jiraIssueKey
       value: "SAPOCP-1659"
     - name: skipEdgelmValidation
-      value: "false"
+      value: "true"
   workspaces:
     - name: source
       volumeClaimTemplate:
