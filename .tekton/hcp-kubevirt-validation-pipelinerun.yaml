@@ -25,7 +25,7 @@ spec:
     - name: revision
       value: "{{ revision }}"
     - name: hostedClusterName
-      value: "hcp-eic-test"
+      value: "hcp-eic-rb"
     - name: hostedClusterNamespace
       value: "clusters"
     - name: releaseImage
