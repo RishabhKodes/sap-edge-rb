@@ -7,11 +7,12 @@
 apiVersion: tekton.dev/v1
 kind: Pipeline
 metadata:
-  name: hcp-kubevirt-validation-pipeline
+  name: hcp-ossm3-validation-pipeline
   annotations:
-    description: "Complete SAP Edge Integration Cell validation pipeline for HCP KubeVirt: creates hosted cluster with MCE/HyperShift on KubeVirt, deploys PostgreSQL and Redis, runs comprehensive endpoint tests, and tears down infrastructure"
+    description: "Complete SAP Edge validation pipeline for HCP KubeVirt with OSSM3 restricted-access setup: creates hosted cluster, configures Service Mesh 3.x, applies RBAC, generates restricted kubeconfig, deploys PostgreSQL and Redis, runs endpoint tests, and tears down infrastructure"
 spec:
   params:
+    # --- Git parameters ---
     - name: repoUrl
       type: string
       description: "Git repository URL"
@@ -19,6 +20,8 @@ spec:
       type: string
       description: "Git revision (branch/tag/commit)"
       default: "main"
+
+    # --- HCP cluster parameters ---
     - name: hostedClusterName
       type: string
       description: "Name of the hosted cluster"
@@ -54,6 +57,25 @@ spec:
       type: string
       description: "Storage class for etcd PVCs (leave empty for default)"
       default: ""
+    - name: hubKubeconfigSecretName
+      type: string
+      description: "Name of the Secret containing kubeconfig for hub cluster (optional)"
+      default: ""
+
+    # --- OSSM3 parameters ---
+    - name: ossm3Channel
+      type: string
+      description: "OLM subscription channel for the OSSM3 operator"
+      default: "stable-3.2"
+    - name: rbacResourcesConfigMapName
+      type: string
+      description: "Name of the ConfigMap containing RBAC YAML files from SAP Note 3618713 resources.zip"
+    - name: skipWebhook
+      type: string
+      description: "Skip optional admission webhook installation"
+      default: "false"
+
+    # --- EIC services parameters ---
     - name: postgresVersion
       type: string
       description: "PostgreSQL version (v15/v16/v17)"
@@ -62,6 +84,8 @@ spec:
       type: string
       description: "Redis cluster type (standard/ha)"
       default: "standard"
+
+    # --- Endpoint test parameters ---
     - name: eicAuthSecretName
       type: string
       description: "EIC authentication secret name for endpoint tests"
@@ -69,6 +93,8 @@ spec:
       type: string
       description: "Use public DNS for endpoint tests"
       default: "false"
+
+    # --- Jira parameters ---
     - name: jiraSecretName
       type: string
       description: "Name of the Kubernetes Secret containing Jira credentials"
@@ -77,18 +103,33 @@ spec:
       type: string
       description: "Jira issue key to update with deployment results"
       default: ""
+
+    # --- Pipeline control ---
     - name: skipTeardown
       type: string
       description: "Skip the teardown step at the end"
       default: "false"
-    - name: hubKubeconfigSecretName
-      type: string
-      description: "Name of the Secret containing kubeconfig for hub cluster (optional)"
-      default: ""
   workspaces:
     - name: source
+    - name: rbac-resources
+      description: "ConfigMap-backed workspace containing RBAC YAML files from SAP Note 3618713 resources.zip"
 
   tasks:
+    # =============================================
+    # Phase 1: Create HCP KubeVirt Cluster
+    # =============================================
+
+    # Step 0: Pre-flight validation (runs in parallel with fetch-repository)
+    - name: preflight-check
+      taskRef: { name: ossm3-preflight-check }
+      params:
+        - name: rbacResourcesConfigMapName
+          value: $(params.rbacResourcesConfigMapName)
+        - name: pullSecretName
+          value: $(params.pullSecretName)
+        - name: hubKubeconfigSecretName
+          value: $(params.hubKubeconfigSecretName)
+
     # Step 1: Clone repository
     - name: fetch-repository
       taskRef: { name: git-clone }
@@ -103,7 +144,7 @@ spec:
 
     # Step 2: Create HostedCluster and NodePool
     - name: create-hosted-cluster
-      runAfter: [fetch-repository]
+      runAfter: [fetch-repository, preflight-check]
       taskRef: { name: hcp-create-hosted-cluster }
       params:
         - name: hostedClusterName
@@ -147,9 +188,98 @@ spec:
         - name: source
           workspace: source
 
-    # Step 4: Deploy PostgreSQL on hosted cluster (parallel with Redis)
-    - name: deploy-postgres
+    # =============================================
+    # Phase 2: OSSM3 Restricted-Access Setup
+    # =============================================
+
+    # Step 4: Verify Service Mesh 3.x operators on hosted cluster
+    - name: verify-operators
       runAfter: [wait-cluster-ready]
+      taskRef: { name: ossm3-verify-operators }
+      params:
+        - name: hostedClusterName
+          value: $(params.hostedClusterName)
+        - name: hostedClusterNamespace
+          value: $(params.hostedClusterNamespace)
+        - name: hubKubeconfigSecretName
+          value: $(params.hubKubeconfigSecretName)
+        - name: ossm3Channel
+          value: $(params.ossm3Channel)
+      workspaces:
+        - name: source
+          workspace: source
+
+    # Step 5: Prepare namespaces with labels and SCC annotations
+    - name: prepare-namespaces
+      runAfter: [verify-operators]
+      taskRef: { name: ossm3-prepare-namespaces }
+      params:
+        - name: hostedClusterName
+          value: $(params.hostedClusterName)
+        - name: hostedClusterNamespace
+          value: $(params.hostedClusterNamespace)
+        - name: hubKubeconfigSecretName
+          value: $(params.hubKubeconfigSecretName)
+      workspaces:
+        - name: source
+          workspace: source
+
+    # Step 6: Configure OpenShift Service Mesh 3.x
+    - name: configure-mesh
+      runAfter: [prepare-namespaces]
+      taskRef: { name: ossm3-configure-mesh }
+      params:
+        - name: hostedClusterName
+          value: $(params.hostedClusterName)
+        - name: hostedClusterNamespace
+          value: $(params.hostedClusterNamespace)
+        - name: hubKubeconfigSecretName
+          value: $(params.hubKubeconfigSecretName)
+      workspaces:
+        - name: source
+          workspace: source
+
+    # Step 7: Apply RBAC permissions from SAP Note 3618713 resources
+    - name: apply-rbac
+      runAfter: [configure-mesh]
+      taskRef: { name: ossm3-apply-rbac }
+      params:
+        - name: hostedClusterName
+          value: $(params.hostedClusterName)
+        - name: hostedClusterNamespace
+          value: $(params.hostedClusterNamespace)
+        - name: hubKubeconfigSecretName
+          value: $(params.hubKubeconfigSecretName)
+        - name: skipWebhook
+          value: $(params.skipWebhook)
+      workspaces:
+        - name: source
+          workspace: source
+        - name: rbac-resources
+          workspace: rbac-resources
+
+    # Step 8: Generate SA-based restricted kubeconfig for ELM registration
+    - name: generate-sa-based-kubeconfig
+      runAfter: [apply-rbac]
+      taskRef: { name: ossm3-generate-sa-based-kubeconfig }
+      params:
+        - name: hostedClusterName
+          value: $(params.hostedClusterName)
+        - name: hostedClusterNamespace
+          value: $(params.hostedClusterNamespace)
+        - name: hubKubeconfigSecretName
+          value: $(params.hubKubeconfigSecretName)
+      workspaces:
+        - name: source
+          workspace: source
+
+    # =============================================
+    # Phase 3: Deploy EIC Services
+    # =============================================
+
+    # Step 9: Deploy PostgreSQL on hosted cluster (parallel with Redis)
+    - name: deploy-postgres
+      runAfter: [generate-sa-based-kubeconfig]
       taskRef: { name: hcp-deploy-postgres }
       params:
         - name: hostedClusterName
@@ -164,9 +294,9 @@ spec:
         - name: source
           workspace: source
 
-    # Step 5: Deploy Redis on hosted cluster (parallel with PostgreSQL)
+    # Step 10: Deploy Redis on hosted cluster (parallel with PostgreSQL)
     - name: deploy-redis
-      runAfter: [wait-cluster-ready]
+      runAfter: [generate-sa-based-kubeconfig]
       taskRef: { name: hcp-deploy-redis }
       params:
         - name: hostedClusterName
@@ -181,7 +311,7 @@ spec:
         - name: source
           workspace: source
 
-    # Step 6: Get all credentials and display them
+    # Step 11: Get all credentials and display them
     - name: get-all-accesses
       runAfter: [deploy-postgres, deploy-redis]
       taskRef: { name: hcp-get-all-accesses }
@@ -196,7 +326,11 @@ spec:
         - name: source
           workspace: source
 
-    # Step 7: Manual approval after ELM/EIC and iFlow deployment
+    # =============================================
+    # Phase 4: Manual ELM/EIC Deployment + Tests
+    # =============================================
+
+    # Step 12: Manual approval after ELM/EIC and iFlow deployment
     - name: approval-elm-eic-iflow-deployed
       runAfter: [get-all-accesses]
       taskRef:
@@ -213,26 +347,29 @@ spec:
             - system:admin
         - name: description
           value: |
-            PostgreSQL and Redis deployed successfully. Credentials have been displayed.
+            OSSM3 restricted-access setup, PostgreSQL and Redis deployed successfully.
+            Credentials have been displayed. Restricted kubeconfig generated.
 
             Cluster: $(params.hostedClusterName)
             Namespace: $(params.hostedClusterNamespace)
             Workers: $(params.nodePoolReplicas) x ($(params.nodePoolCpuCores) vCPU, $(params.nodePoolMemoryGB)GB RAM)
 
-            🔧 Please complete the following manually:
-            1. Deploy Edge Lifecycle Management (ELM)
+            Restricted kubeconfig stored as Secret 'edgelm-kubeconfig-generated-$(params.hostedClusterName)'.
+
+            Please complete the following manually:
+            1. Register the cluster in ELM (use restricted kubeconfig, check "Restricted Access")
             2. Deploy Edge Integration Cell (EIC)
             3. Deploy iFlows for testing
 
             After deployment is complete and istio-ingressgateway has a LoadBalancer IP:
-            ✅ APPROVE: Continue with ConfigMap creation and endpoint tests
-            ❌ REJECT: Skip tests and proceed to teardown
+            APPROVE: Continue with ConfigMap creation and endpoint tests
+            REJECT: Skip tests and proceed to teardown
         - name: numberOfApprovalsRequired
           value: '1'
         - name: timeout
           value: '336h'
 
-    # Step 8: Validate and create ConfigMap for endpoint tests (after ELM/EIC/iFlow deployment)
+    # Step 13: Validate and create ConfigMap for endpoint tests
     - name: validate-and-create-configmap
       runAfter: [approval-elm-eic-iflow-deployed]
       taskRef: { name: hcp-validate-and-create-configmap }
@@ -247,7 +384,7 @@ spec:
         - name: source
           workspace: source
 
-    # Step 9: Endpoint Tests (run in parallel after ConfigMap creation)
+    # Step 14: Endpoint Tests (run in parallel after ConfigMap creation)
     - name: test-httpbinipfilter
       runAfter: [validate-and-create-configmap]
       taskRef: { name: endpoint-tests }
@@ -328,7 +465,7 @@ spec:
         - name: source
           workspace: source
 
-    # Step 10: Manual approval before second round of tests
+    # Step 15: Manual approval before second round of tests
     - name: approval-second-test-round
       runAfter:
         - test-httpbinipfilter
@@ -361,7 +498,7 @@ spec:
         - name: timeout
           value: '336h'
 
-    # Step 11: Second round of endpoint tests
+    # Step 16: Second round of endpoint tests
     - name: test-httpbinipfilter-round2
       runAfter: [approval-second-test-round]
       taskRef: { name: endpoint-tests }
@@ -442,7 +579,7 @@ spec:
         - name: source
           workspace: source
 
-    # Step 12: Update Jira with test results
+    # Step 17: Update Jira with test results
     - name: update-jira-test-results
       runAfter:
         - test-httpbinipfilter-round2
@@ -463,9 +600,9 @@ spec:
           value: $(params.jiraIssueKey)
         - name: comment
           value: |
-            h2. ✅ Complete EIC Validation Pipeline Completed (HCP KubeVirt)
+            h2. Complete EIC Validation Pipeline Completed (HCP KubeVirt + OSSM3)
 
-            HCP KubeVirt cluster with full EIC infrastructure and all automated endpoint tests completed successfully.
+            HCP KubeVirt cluster with OSSM3 restricted-access setup, full EIC infrastructure and all automated endpoint tests completed successfully.
 
             *Infrastructure Configuration:*
             * *Cluster Name:* $(params.hostedClusterName)
@@ -476,47 +613,44 @@ spec:
             * *Redis:* $(params.redisClusterType) (Redis Enterprise Operator)
 
             *Pipeline Status:*
-            * Repository cloned: ✅
-            * HostedCluster deployment: ✅ Completed
-            * PostgreSQL deployment: ✅ Completed
-            * Redis deployment: ✅ Completed
-            * Validation and ConfigMap setup: ✅ Completed
-            * Endpoint tests (2 rounds): ✅ All Passed
+            * Repository cloned: Completed
+            * HostedCluster deployment: Completed
+            * OSSM3 operator verification: Completed
+            * Namespace preparation: Completed
+            * Service Mesh 3.x configuration: Completed
+            * RBAC permissions: Completed
+            * Restricted kubeconfig: Generated
+            * PostgreSQL deployment: Completed
+            * Redis deployment: Completed
+            * Validation and ConfigMap setup: Completed
+            * Endpoint tests (2 rounds): All Passed
+
+            *Executed Tests (Round 1):*
+            * test-httpbinipfilter
+            * test-http-test1
+            * test-http-testelster
+            * test-slvredis
+            * test-ratelimit-slvredis
+
+            *Executed Tests (Round 2):*
+            * test-httpbinipfilter-round2
+            * test-http-test1-round2
+            * test-http-testelster-round2
+            * test-slvredis-round2
+            * test-ratelimit-slvredis-round2
 
             *Pipeline Details:*
             * *Repository:* $(params.repoUrl)
             * *Revision:* $(params.revision)
             * *Public DNS:* $(params.publicDNS)
 
-            *Executed Tests (Round 1):*
-            * test-httpbinipfilter ✅
-            * test-http-test1 ✅
-            * test-http-testelster ✅
-            * test-slvredis ✅
-            * test-ratelimit-slvredis ✅
+            Ready for manual teardown approval.
 
-            *Executed Tests (Round 2):*
-            * test-httpbinipfilter-round2 ✅
-            * test-http-test1-round2 ✅
-            * test-http-testelster-round2 ✅
-            * test-slvredis-round2 ✅
-            * test-ratelimit-slvredis-round2 ✅
+    # =============================================
+    # Phase 5: Teardown
+    # =============================================
 
-            *Infrastructure Components:*
-            * MCE Hosted Control Plane with KubeVirt ✅
-            * $(params.nodePoolReplicas) KubeVirt worker VMs ✅
-            * Crunchy PostgreSQL Operator ✅
-            * Redis Enterprise Operator ✅
-            * All EIC endpoints validated ✅
-
-            *Security:*
-            * PostgreSQL: In-cluster with operator-managed credentials
-            * Redis: In-cluster with operator-managed credentials
-            * Hosted cluster: Isolated control plane on hub cluster
-
-            Ready for manual teardown approval. The complete HCP infrastructure will be destroyed once approved.
-
-    # Step 13: Manual approval before teardown
+    # Step 18: Manual approval before teardown
     - name: approval-teardown
       runAfter:
         - update-jira-test-results
@@ -538,14 +672,14 @@ spec:
 
             Cluster: $(params.hostedClusterName)
 
-            ✅ APPROVE: Tear down HCP cluster and all resources
-            ❌ REJECT: Keep cluster running (will timeout after 336h and teardown anyway)
+            APPROVE: Tear down HCP cluster and all resources
+            REJECT: Keep cluster running (will timeout after 336h and teardown anyway)
         - name: numberOfApprovalsRequired
           value: '1'
         - name: timeout
           value: '336h'
 
-    # Step 14: Teardown hosted cluster
+    # Step 19: Teardown hosted cluster
     - name: teardown-hosted-cluster
       runAfter: [approval-teardown]
       when:

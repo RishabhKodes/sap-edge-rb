@@ -69,7 +69,7 @@ oc api-resources --verbs=list --namespaced -o name | while read -r TYPE; do
   # Remove finalizers from each instance of this TYPE
   oc get "$TYPE" -n "$PROJECT" -o name 2>/dev/null | while read -r RES; do
     echo "Patching $RES to remove finalizers..."
-    if ! oc patch "$RES" -n "$PROJECT" --type json -p '[{"op": "remove", "path": "/metadata/finalizers"}]' 2>/dev/null; then
+    if ! oc patch "$RES" -n "$PROJECT" --type json -p "$REMOVE_METADATA_FINALIZERS_PATCH" 2>/dev/null; then
        echo "Warning: Failed to patch $RES to remove finalizers"
     fi
   done

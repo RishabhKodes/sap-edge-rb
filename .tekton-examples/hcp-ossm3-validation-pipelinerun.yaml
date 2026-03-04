@@ -1,0 +1,98 @@
+# SPDX-FileCopyrightText: 2025 SAP edge team
+# SPDX-FileContributor: Manjun Jiao (@mjiao)
+#
+# SPDX-License-Identifier: Apache-2.0
+
+# Prerequisites:
+# 1. Create the RBAC resources ConfigMap from SAP Note 3618713 resources.zip:
+#    oc create configmap ossm3-rbac-resources --from-file=/path/to/extracted/resources/
+#
+# 2. Ensure the Service Mesh 3.x operator is installed on the target cluster
+#    (via OperatorHub or CLI before running this pipeline)
+
+---
+apiVersion: tekton.dev/v1
+kind: PipelineRun
+metadata:
+  generateName: hcp-ossm3-validation-pr{{ pull_request_number }}-
+  annotations:
+    pipelinesascode.tekton.dev/on-event: "[pull_request]"   # only PRs
+    pipelinesascode.tekton.dev/on-target-branch: "[main]"
+    pipelinesascode.tekton.dev/task: "[./.tekton/tasks/git-clone.yaml]"
+spec:
+  pipelineRef:
+    name: hcp-ossm3-validation-pipeline
+  timeouts:
+    pipeline: "336h"      # Total pipeline timeout (14 days)
+    tasks: "335h"         # Individual task timeout (tasks + finally must be <= pipeline)
+    finally: "60m"        # Finally tasks timeout
+  params:
+    # --- Git parameters ---
+    - name: repoUrl
+      value: "{{ repo_url }}"
+    - name: revision
+      value: "{{ revision }}"
+
+    # --- HCP cluster parameters ---
+    - name: hostedClusterName
+      value: "hcp-ossm3-mj-test"
+    - name: hostedClusterNamespace
+      value: "clusters"
+    - name: releaseImage
+      value: "quay.io/openshift-release-dev/ocp-release:4.20.0-x86_64"
+    - name: nodePoolReplicas
+      value: "3"
+    - name: nodePoolCpuCores
+      value: "16"
+    - name: nodePoolMemoryGB
+      value: "32"
+    - name: rootDiskSizeGB
+      value: "120"
+    - name: pullSecretName
+      value: "mj-pull-secret"
+    - name: etcdStorageClass
+      value: ""
+    - name: hubKubeconfigSecretName
+      value: "hub-admin-kubeconfig"
+
+    # --- OSSM3 parameters ---
+    - name: ossm3Channel
+      value: "stable-3.2"
+    - name: rbacResourcesConfigMapName
+      value: "ossm3-rbac-resources"
+    - name: skipWebhook
+      value: "true"
+
+    # --- EIC services parameters ---
+    - name: postgresVersion
+      value: "v15"
+    - name: redisClusterType
+      value: "standard"
+
+    # --- Endpoint test parameters ---
+    - name: eicAuthSecretName
+      value: "eic-auth-secret"
+    - name: publicDNS
+      value: "false"
+
+    # --- Jira parameters ---
+    - name: jiraSecretName
+      value: "jira-secret-mj"
+    - name: jiraIssueKey
+      value: ""
+
+    # --- Pipeline control ---
+    - name: skipTeardown
+      value: "false"
+  workspaces:
+    - name: source
+      volumeClaimTemplate:
+        spec:
+          accessModes: [ReadWriteMany]
+          storageClassName: ocs-storagecluster-cephfs
+          resources:
+            requests:
+              storage: 2Gi
+    - name: rbac-resources
+      configMap:
+        name: ossm3-rbac-resources

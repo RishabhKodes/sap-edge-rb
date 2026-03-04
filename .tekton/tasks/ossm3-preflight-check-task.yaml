@@ -1,0 +1,101 @@
+# SPDX-FileCopyrightText: 2025 SAP edge team
+# SPDX-FileContributor: Manjun Jiao (@mjiao)
+#
+# SPDX-License-Identifier: Apache-2.0
+
+---
+apiVersion: tekton.dev/v1
+kind: Task
+metadata:
+  name: ossm3-preflight-check
+spec:
+  description: >-
+    Pre-flight validation for the HCP OSSM3 pipeline. Checks that
+    required ConfigMaps, Secrets, and other prerequisites exist before
+    starting expensive cluster provisioning operations.
+  params:
+    - name: rbacResourcesConfigMapName
+      type: string
+      description: "Name of the ConfigMap containing RBAC YAML files from SAP Note 3618713 resources.zip"
+    - name: pullSecretName
+      type: string
+      description: "Name of the pull secret"
+      default: "redhat-pull-secret"
+    - name: hubKubeconfigSecretName
+      type: string
+      description: "Name of the Secret containing kubeconfig for hub cluster (optional)"
+      default: ""
+  steps:
+    - name: preflight-check
+      image: registry.access.redhat.com/ubi9/ubi
+      script: |
+        #!/usr/bin/env bash
+        set -euo pipefail
+
+        RBAC_CM="$(params.rbacResourcesConfigMapName)"
+        PULL_SECRET="$(params.pullSecretName)"
+        HUB_KUBECONFIG_SECRET="$(params.hubKubeconfigSecretName)"
+
+        echo "=========================================="
+        echo "OSSM3 Pre-flight Validation"
+        echo "=========================================="
+        ERRORS=0
+
+        # Install kubectl
+        curl -sL https://mirror.openshift.com/pub/openshift-v4/clients/ocp/stable/openshift-client-linux.tar.gz -o /tmp/oc.tar.gz
+        tar xzf /tmp/oc.tar.gz -C /tmp
+        mv /tmp/oc /usr/local/bin/
+        cp /usr/local/bin/oc /usr/local/bin/kubectl
+        rm -f /tmp/oc.tar.gz
+
+        # Check RBAC resources ConfigMap
+        echo ""
+        echo "🔍 Checking RBAC resources ConfigMap: ${RBAC_CM}..."
+        if kubectl get configmap "${RBAC_CM}" > /dev/null 2>&1; then
+          YAML_COUNT=$(kubectl get configmap "${RBAC_CM}" -o json | python3 -c "import sys,json; print(len([k for k in json.load(sys.stdin).get('data',{}).keys() if k.endswith('.yaml')]))" 2>/dev/null || echo "0")
+          if [[ "${YAML_COUNT}" -gt 0 ]]; then
+            echo "   ✅ ConfigMap '${RBAC_CM}' exists with ${YAML_COUNT} YAML file(s)"
+          else
+            echo "   ❌ ConfigMap '${RBAC_CM}' exists but contains no YAML files"
+            echo "      Create it with: oc create configmap ${RBAC_CM} --from-file=/path/to/extracted/resources/"
+            ERRORS=$((ERRORS + 1))
+          fi
+        else
+          echo "   ❌ ConfigMap '${RBAC_CM}' not found"
+          echo "      Create it with: oc create configmap ${RBAC_CM} --from-file=/path/to/extracted/resources/"
+          ERRORS=$((ERRORS + 1))
+        fi
+
+        # Check pull secret
+        echo ""
+        echo "🔍 Checking pull secret: ${PULL_SECRET}..."
+        if kubectl get secret "${PULL_SECRET}" > /dev/null 2>&1; then
+          echo "   ✅ Secret '${PULL_SECRET}' exists"
+        else
+          echo "   ❌ Secret '${PULL_SECRET}' not found"
+          ERRORS=$((ERRORS + 1))
+        fi
+
+        # Check hub kubeconfig secret (if provided)
+        if [[ -n "${HUB_KUBECONFIG_SECRET}" ]]; then
+          echo ""
+          echo "🔍 Checking hub kubeconfig secret: ${HUB_KUBECONFIG_SECRET}..."
+          if kubectl get secret "${HUB_KUBECONFIG_SECRET}" > /dev/null 2>&1; then
+            echo "   ✅ Secret '${HUB_KUBECONFIG_SECRET}' exists"
+          else
+            echo "   ❌ Secret '${HUB_KUBECONFIG_SECRET}' not found"
+            ERRORS=$((ERRORS + 1))
+          fi
+        fi
+
+        # Summary
+        echo ""
+        echo "=========================================="
+        if [[ ${ERRORS} -gt 0 ]]; then
+          echo "❌ Pre-flight check FAILED: ${ERRORS} issue(s) found"
+          echo "   Please fix the issues above before running the pipeline."
+          exit 1
+        else
+          echo "✅ All pre-flight checks passed"
+        fi
+        echo "=========================================="
