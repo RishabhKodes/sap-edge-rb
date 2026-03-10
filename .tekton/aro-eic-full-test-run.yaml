@@ -33,7 +33,7 @@ spec:
     - name: azureSecretName
       value: "azure-sp-secret-rb"
     - name: pullSecretName
-      value: "redhat-pull-secret"
+      value: "rb-pull-secret"
     - name: eicAuthSecretName
       value: "eic-auth-secret"
     - name: postgresAdminPasswordSecretName
