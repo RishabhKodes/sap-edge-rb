@@ -14,7 +14,7 @@ metadata:
     pipelinesascode.tekton.dev/task: "[./.tekton/tasks/git-clone.yaml]"
 spec:
   pipelineRef:
-    name: rosa-eic-full-test-pipeline
+    name: rosa-eic-rb1-test-pipeline
   timeouts:
     pipeline: "336h"      # Total pipeline timeout (14 days)
     tasks: "335h"         # Individual task timeout (tasks + finally must be <= pipeline)
@@ -25,13 +25,13 @@ spec:
     - name: revision
       value: "{{ revision }}"
     - name: clusterName
-      value: "rosa-eic-test"
+      value: "rosa-eic-rb1-test"
     - name: awsRegion
-      value: "us-east-1"
+      value: "eu-north-1"
     - name: rosaVersion
-      value: "4.20.12"
+      value: "4.21.0"
     - name: awsSecretName
-      value: "aws-credentials-secret"
+      value: "aws-credentials-secret-rb"
     - name: redhatTokenSecretName
       value: "redhat-token-secret"
     - name: eicAuthSecretName
@@ -49,9 +49,9 @@ spec:
     - name: publicDNS
       value: "false"
     - name: jiraSecretName
-      value: "jira-secret-mj"
+      value: "jira-secret-rb"
     - name: jiraIssueKey
-      value: "SAPOCP-1590"
+      value: "SAPOCP-1943"
   workspaces:
     - name: source
       volumeClaimTemplate:
