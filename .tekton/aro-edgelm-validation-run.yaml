@@ -33,7 +33,7 @@ spec:
     - name: azureSecretName
       value: "azure-sp-secret"
     - name: pullSecretName
-      value: "rb-pull-secret"
+      value: "mj-pull-secret"
     - name: quayAdminPasswordSecretName
       value: "quay-admin-secret"
     - name: jiraSecretName
