@@ -29,13 +29,13 @@ spec:
     - name: pullRequestNumber
       value: "{{ pull_request_number }}"
     - name: clusterName
-      value: "rosa-eic-test"
+      value: "rosa-eic-rb"
     - name: awsRegion
-      value: "us-east-1"
+      value: "eu-north-1"
     - name: rosaVersion
-      value: "4.20.12"
+      value: "4.21.0"
     - name: awsSecretName
-      value: "aws-credentials-secret"
+      value: "aws-credentials-secret-rb"
     - name: redhatTokenSecretName
       value: "redhat-token-secret"
     - name: eicAuthSecretName
@@ -53,9 +53,9 @@ spec:
     - name: publicDNS
       value: "false"
     - name: jiraSecretName
-      value: "jira-secret-mj"
+      value: "jira-secret-rb"
     - name: jiraIssueKey
-      value: "SAPOCP-1590"
+      value: "SAPOCP-1944"
     - name: terraformStateS3Bucket
       value: "eic-test-rosa-terraform-state"
     - name: terraformStateS3Key
