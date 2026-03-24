@@ -31,7 +31,7 @@ spec:
     - name: aroLocation
       value: "northeurope"
     - name: aroClusterName
-      value: "sap-eic-validation"
+      value: "aro-eic-rb"
     - name: aroVersion
       value: "4.21.0"
     - name: azureSecretName
