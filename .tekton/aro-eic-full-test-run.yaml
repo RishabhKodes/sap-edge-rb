@@ -33,9 +33,9 @@ spec:
     - name: aroClusterName
       value: "sap-eic-validation"
     - name: aroVersion
-      value: "4.19.20"
+      value: "4.21.0"
     - name: azureSecretName
-      value: "azure-sp-secret"
+      value: "azure-sp-secret-rb"
     - name: pullSecretName
       value: "mj-pull-secret"
     - name: eicAuthSecretName
@@ -53,9 +53,9 @@ spec:
     - name: quayAdminPasswordSecretName
       value: "quay-admin-secret"
     - name: jiraSecretName
-      value: "jira-secret-mj"
+      value: "jira-secret-rb"
     - name: jiraIssueKey
-      value: "SAPOCP-1708"
+      value: "SAPOCP-1944"
   workspaces:
     - name: source
       volumeClaimTemplate:
