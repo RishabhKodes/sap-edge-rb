@@ -19,6 +19,7 @@ param domain string
     '4.17.44'
     '4.18.26'
     '4.19.20'
+    '4.21.0'
 ])
 param version string
 
