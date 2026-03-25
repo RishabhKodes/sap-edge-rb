@@ -55,7 +55,7 @@ spec:
     - name: jiraSecretName
       value: "jira-secret-rb"
     - name: jiraIssueKey
-      value: "SAPOCP-1944"
+      value: "SAPOCP-1943"
     - name: terraformStateS3Bucket
       value: "eic-test-rosa-terraform-state"
     - name: terraformStateS3Key
