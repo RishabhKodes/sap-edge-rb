@@ -33,7 +33,7 @@ spec:
     - name: hostedClusterNamespace
       value: "clusters"
     - name: releaseImage
-      value: "quay.io/openshift-release-dev/ocp-release:4.20.17-x86_64"
+      value: "quay.io/openshift-release-dev/ocp-release:4.18.0-x86_64"
     - name: nodePoolReplicas
       value: "3"
     - name: nodePoolCpuCores
@@ -51,17 +51,17 @@ spec:
     - name: postgresHA
       value: "true"
     - name: datastoreType
-      value: "valkey-cluster"
+      value: "redis"
     - name: redisClusterType
-      value: "cluster"
+      value: "standard"
     - name: eicAuthSecretName
       value: "eic-auth-secret"
     - name: publicDNS
       value: "false"
     - name: jiraSecretName
-      value: "jira-secret-mj"
+      value: "jira-secret-rb"
     - name: jiraIssueKey
-      value: ""
+      value: "SAPOCP-1969"
     - name: skipTeardown
       value: "false"
     - name: hubKubeconfigSecretName
